@@ -1,15 +1,22 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
 	"syscall"
+	"time"
 
+	"github.com/dale-tomson/Tarsier/internal/api"
+	"github.com/dale-tomson/Tarsier/internal/auth"
 	"github.com/dale-tomson/Tarsier/internal/config"
+	"github.com/dale-tomson/Tarsier/internal/db"
 )
 
 // Build metadata injected via -ldflags during compilation.
@@ -69,9 +76,74 @@ func main() {
 
 	sanitized := cfg.Sanitized()
 	log.Printf("Configuration loaded successfully from %s", configPath)
-	log.Printf("Server listening on %s (timezone: %s)", sanitized.Server.Listen, sanitized.Server.Timezone)
 	log.Printf("Storage directory: %s (logs cap: %s, metrics cap: %s)",
 		sanitized.Storage.Path, sanitized.Storage.LogsMaxSize, sanitized.Storage.MetricsMaxSize)
+
+	// Initialize SQLite database stores (config.db and metrics.db)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	store, err := db.Open(ctx, cfg.Storage.Path)
+	if err != nil {
+		log.Fatalf("Fatal: failed to initialize database store at %s: %v", cfg.Storage.Path, err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			log.Printf("Error closing database store: %v", err)
+		}
+	}()
+
+	// Initialize single-admin authentication and session store
+	authenticator, err := auth.NewAuthenticatorFromEnv()
+	if err != nil {
+		log.Fatalf("Fatal auth configuration error: %v (set TARSIER_ADMIN_PASSWORD_HASH)", err)
+	}
+
+	sessionTTL, err := time.ParseDuration(cfg.Auth.SessionTTL)
+	if err != nil || sessionTTL <= 0 {
+		sessionTTL = 24 * time.Hour
+	}
+
+	lockout, err := time.ParseDuration(cfg.Auth.Lockout)
+	if err != nil || lockout <= 0 {
+		lockout = 15 * time.Minute
+	}
+
+	sessions, err := auth.NewSessionStore(auth.SessionConfig{
+		ConfigDB: store.Config,
+		Secret:   authenticator.SessionSecret(),
+		TTL:      sessionTTL,
+	})
+	if err != nil {
+		log.Fatalf("Fatal session store error: %v", err)
+	}
+
+	limiter := auth.NewRateLimiter(auth.RateLimiterConfig{
+		MaxAttempts: cfg.Auth.MaxLoginAttempts,
+		Lockout:     lockout,
+	})
+
+	// Initialize HTTP API and static asset server
+	server, err := api.NewServer(api.ServerConfig{
+		Config:    cfg,
+		ConfigDB:  store.Config,
+		MetricsDB: store.Metrics,
+		Auth:      authenticator,
+		Sessions:  sessions,
+		Limiter:   limiter,
+		Version:   Version,
+	})
+	if err != nil {
+		log.Fatalf("Fatal: failed to initialize HTTP server: %v", err)
+	}
+
+	// Start HTTP server in background goroutine
+	go func() {
+		log.Printf("HTTP server listening on %s (timezone: %s)", sanitized.Server.Listen, sanitized.Server.Timezone)
+		if err := server.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Fatal: HTTP server failed: %v", err)
+		}
+	}()
 
 	// Listen for SIGHUP reload
 	config.ListenSIGHUP(func() {
@@ -92,4 +164,12 @@ func main() {
 	log.Printf("Tarsier engine ready. Press Ctrl+C or send SIGTERM to shutdown.")
 	sig := <-stopChan
 	log.Printf("Received termination signal (%s), shutting down cleanly...", sig)
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server shutdown warning: %v", err)
+	}
+	log.Printf("Tarsier stopped cleanly")
 }

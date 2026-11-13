@@ -1,0 +1,220 @@
+/* Tarsier Minimal Semantic Dashboard CSS */
+
+:root {
+  --nav-height: 3.5rem;
+}
+
+/* Nav & Topbar */
+nav.app-nav {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+  margin-bottom: 1.5rem;
+}
+
+nav.app-nav ul {
+  margin-bottom: 0;
+}
+
+.brand-title {
+  font-weight: 700;
+  font-size: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+}
+
+.nav-links a {
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--pico-border-radius);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.nav-links a.active {
+  background-color: var(--pico-primary-background);
+  color: var(--pico-primary-inverse);
+}
+
+.nav-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nav-controls select,
+.nav-controls button {
+  margin-bottom: 0;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  height: auto;
+  width: auto;
+}
+
+/* Metric Cards Grid */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.metric-card {
+  padding: 1rem;
+  margin-bottom: 0;
+  border-radius: var(--pico-border-radius);
+  border: 1px solid var(--pico-muted-border-color);
+}
+
+.metric-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pico-muted-color);
+  margin-bottom: 0.25rem;
+}
+
+.metric-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.metric-sub {
+  font-size: 0.8rem;
+  color: var(--pico-muted-color);
+  margin-top: 0.25rem;
+}
+
+/* Status Badges */
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  line-height: 1;
+}
+
+.badge-success {
+  background-color: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.badge-warning {
+  background-color: rgba(234, 179, 8, 0.15);
+  color: #ca8a04;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.badge-danger {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.badge-muted {
+  background-color: rgba(156, 163, 175, 0.15);
+  color: #6b7280;
+  border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+/* Log Table & Stream Viewer */
+.log-viewer {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+  overflow-x: auto;
+  max-height: 480px;
+  background-color: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+  padding: 0.5rem;
+}
+
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0;
+}
+
+.log-table th,
+.log-table td {
+  padding: 0.3rem 0.5rem;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.log-table td.log-msg {
+  white-space: pre-wrap;
+  word-break: break-all;
+  width: 100%;
+}
+
+/* Charts */
+.chart-panel {
+  width: 100%;
+  min-height: 240px;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+/* Toast Notification */
+.toast-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 9999;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.toast {
+  padding: 0.75rem 1rem;
+  border-radius: var(--pico-border-radius);
+  color: #fff;
+  font-size: 0.9rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  animation: toast-in 0.2s ease-out;
+}
+
+.toast-info { background-color: #0284c7; }
+.toast-success { background-color: #16a34a; }
+.toast-error { background-color: #dc2626; }
+.toast-warning { background-color: #d97706; }
+
+.toast-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 0.25rem;
+  margin: 0;
+  line-height: 1;
+  opacity: 0.8;
+}
+.toast-close:hover { opacity: 1; }
+
+@keyframes toast-in {
+  from { transform: translateY(-10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Login Modal */
+dialog.login-dialog {
+  padding: 0;
+}
+
+dialog.login-dialog article {
+  max-width: 420px;
+  margin: 0 auto;
+}
