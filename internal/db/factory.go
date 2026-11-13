@@ -11,12 +11,35 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Handle wraps the isolated read-write and read-only connection handles for a single SQLite database.
+const (
+	// ConfigWriterQueueSize is the bounded queue capacity for config.db write jobs.
+	ConfigWriterQueueSize = 256
+
+	// MetricsWriterQueueSize is the bounded queue capacity for metrics.db write jobs.
+	MetricsWriterQueueSize = 2048
+)
+
+// Handle wraps the isolated read-write and read-only connection handles and single-writer worker
+// for a single SQLite database.
 type Handle struct {
-	Name string
-	Path string
-	RW   *sql.DB // Dedicated single-writer handle (SetMaxOpenConns(1))
-	RO   *sql.DB // Read-only concurrent query pool (SetMaxOpenConns(2))
+	Name   string
+	Path   string
+	RW     *sql.DB // Dedicated single-writer handle (SetMaxOpenConns(1))
+	RO     *sql.DB // Read-only concurrent query pool (SetMaxOpenConns(2))
+	Writer *Writer // Dedicated single-writer queue worker
+}
+
+// ExecWrite executes a write transaction synchronously through the dedicated single-writer queue.
+func (h *Handle) ExecWrite(ctx context.Context, fn WriteFunc) error {
+	if h.Writer == nil {
+		return errors.New("writer not initialized")
+	}
+	return h.Writer.ExecSync(ctx, fn)
+}
+
+// QueryRO returns the isolated read-only connection pool.
+func (h *Handle) QueryRO() *sql.DB {
+	return h.RO
 }
 
 // Checkpoint triggers a passive WAL checkpoint on the RW connection.
@@ -30,13 +53,25 @@ func (h *Handle) Checkpoint(ctx context.Context) error {
 	return nil
 }
 
-// Close checkpoints WAL and cleanly closes both RO and RW handles.
-func (h *Handle) Close() error {
+// Close gracefully drains the Writer, checkpoints WAL, and cleanly closes both RO and RW handles.
+func (h *Handle) Close(ctx ...context.Context) error {
+	c := context.Background()
+	if len(ctx) > 0 && ctx[0] != nil {
+		c = ctx[0]
+	}
+
 	var errs []error
+
+	// Close and drain Writer first before checkpointing and closing sql.DB handles
+	if h.Writer != nil {
+		if err := h.Writer.Close(c); err != nil {
+			errs = append(errs, fmt.Errorf("close %s writer: %w", h.Name, err))
+		}
+	}
 
 	// Passive WAL checkpoint on best-effort basis before closing
 	if h.RW != nil {
-		_ = h.Checkpoint(context.Background())
+		_ = h.Checkpoint(c)
 	}
 
 	if h.RO != nil {
@@ -60,16 +95,16 @@ type Store struct {
 	Metrics *Handle // <storage.path>/metrics.db
 }
 
-// Close checkpoints WAL and cleanly closes all RO and RW handles across both databases.
-func (s *Store) Close() error {
+// Close drains all writers, checkpoints WAL, and cleanly closes all RO and RW handles across both databases.
+func (s *Store) Close(ctx ...context.Context) error {
 	var errs []error
 	if s.Config != nil {
-		if err := s.Config.Close(); err != nil {
+		if err := s.Config.Close(ctx...); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	if s.Metrics != nil {
-		if err := s.Metrics.Close(); err != nil {
+		if err := s.Metrics.Close(ctx...); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -82,12 +117,12 @@ func Open(ctx context.Context, dataDir string) (*Store, error) {
 		return nil, fmt.Errorf("create data directory %q: %w", dataDir, err)
 	}
 
-	configHandle, err := openHandle(ctx, filepath.Join(dataDir, "config.db"), "config", ConfigCacheSizeKiB, ConfigSchemaDDL)
+	configHandle, err := openHandle(ctx, filepath.Join(dataDir, "config.db"), "config", ConfigCacheSizeKiB, ConfigWriterQueueSize, ConfigSchemaDDL)
 	if err != nil {
 		return nil, fmt.Errorf("open config.db: %w", err)
 	}
 
-	metricsHandle, err := openHandle(ctx, filepath.Join(dataDir, "metrics.db"), "metrics", MetricsCacheSizeKiB, MetricsSchemaDDL)
+	metricsHandle, err := openHandle(ctx, filepath.Join(dataDir, "metrics.db"), "metrics", MetricsCacheSizeKiB, MetricsWriterQueueSize, MetricsSchemaDDL)
 	if err != nil {
 		_ = configHandle.Close()
 		return nil, fmt.Errorf("open metrics.db: %w", err)
@@ -99,7 +134,7 @@ func Open(ctx context.Context, dataDir string) (*Store, error) {
 	}, nil
 }
 
-func openHandle(ctx context.Context, dbPath string, name string, cacheSizeKiB int64, schema []string) (*Handle, error) {
+func openHandle(ctx context.Context, dbPath string, name string, cacheSizeKiB int64, queueSize int, schema []string) (*Handle, error) {
 	rwDSN := buildDSN(dbPath, false, cacheSizeKiB)
 	rw, err := sql.Open("sqlite", rwDSN)
 	if err != nil {
@@ -139,10 +174,14 @@ func openHandle(ctx context.Context, dbPath string, name string, cacheSizeKiB in
 	ro.SetMaxIdleConns(2)
 	ro.SetConnMaxLifetime(0)
 
+	// Dedicated single-writer queue worker pinned to rw handle
+	writer := NewWriter(rw, queueSize)
+
 	return &Handle{
-		Name: name,
-		Path: dbPath,
-		RW:   rw,
-		RO:   ro,
+		Name:   name,
+		Path:   dbPath,
+		RW:     rw,
+		RO:     ro,
+		Writer: writer,
 	}, nil
 }
