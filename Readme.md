@@ -39,7 +39,7 @@
 ```yaml
 services:
   tarsier:
-    image: ghcr.io/tarsier-obs/tarsier:latest
+    image: ghcr.io/dale-tomson/tarsier:latest
     container_name: tarsier
     restart: unless-stopped
     pid: host

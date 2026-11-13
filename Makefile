@@ -11,7 +11,7 @@ LDFLAGS = -s -w \
 	-X 'main.Commit=$(COMMIT)' \
 	-X 'main.BuildDate=$(BUILD_DATE)'
 
-IMAGE_NAME ?= ghcr.io/tarsier-obs/tarsier:$(VERSION)
+IMAGE_NAME ?= ghcr.io/dale-tomson/tarsier:$(VERSION)
 
 .PHONY: all build build-all test test-cover clean docker-build
 

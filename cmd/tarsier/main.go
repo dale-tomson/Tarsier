@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/tarsier-obs/tarsier/internal/config"
+	"github.com/dale-tomson/Tarsier/internal/config"
 )
 
 // Build metadata injected via -ldflags during compilation.

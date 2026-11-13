@@ -1,4 +1,4 @@
-module github.com/tarsier-obs/tarsier
+module github.com/dale-tomson/Tarsier
 
 go 1.27
 
