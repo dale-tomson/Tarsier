@@ -1,0 +1,110 @@
+# ==============================================================================
+# Tarsier Example Configuration
+# ==============================================================================
+# Environment variable substitution is supported via ${VAR} or ${VAR:-default}.
+# Alert rules are configured directly in the Web UI (stored in config.db),
+# not inside this YAML file.
+
+# HTTP API and Dashboard server settings
+server:
+  listen: ":8080"
+  base_url: "https://tarsier.example.com"
+  timezone: "UTC"
+
+# Web dashboard authentication and session security
+auth:
+  session_ttl: "24h"
+  max_login_attempts: 5
+  lockout: "15m"
+
+# Storage paths and physical capacity caps
+storage:
+  path: "/data"
+  logs_max_size: "3GiB"
+  metrics_max_size: "256MiB"
+
+# Data retention horizons
+retention:
+  logs: "7d"
+  metrics_raw: "24h"
+  metrics_1m: "7d"
+  metrics_5m: "30d"
+  metrics_1d: "90d"
+
+# Host metrics collection (/proc, /sys, statfs)
+host:
+  enabled: true
+  interval: "10s"
+  disks: [] # Empty = auto-discover physical mount points
+  disk_exclude_fs: ["tmpfs", "overlay", "squashfs", "devtmpfs"]
+
+# Docker container monitoring via read-only Unix socket
+docker:
+  enabled: true
+  socket: "/var/run/docker.sock"
+  stats_interval: "10s"
+  collect_logs: true
+  collect_metrics: true
+  include: [] # Empty = all containers
+  exclude: ["tarsier"]
+
+# Host log files and detection engine settings
+logs:
+  default_timezone: "UTC"
+  detect:
+    max_scan_bytes: 4096
+    keyword_levels: true
+    hints: true
+  files:
+    - name: "host-syslog"
+      path: "/host/var/log/syslog"
+    - name: "nginx-access"
+      path: "/host/var/log/nginx/access.log"
+
+# Outbound notification channels for alerts and digest reports
+notifiers:
+  email:
+    enabled: false
+    smtp_host: "smtp.example.com"
+    smtp_port: 587
+    security: "starttls" # none | starttls | tls
+    username: "alerts@example.com"
+    password: "${SMTP_PASSWORD:-}"
+    from: "Tarsier <alerts@example.com>"
+    to: ["admin@example.com"]
+
+  discord:
+    enabled: false
+    webhook_url: "${DISCORD_WEBHOOK_URL:-}"
+    mention: "@here"
+
+# Data retention cleanup schedule and digest reports
+cleanup:
+  schedule: "0 3 * * *" # Daily at 03:00 UTC
+  batch_size: 5000
+  batch_pause: "50ms"
+  report:
+    enabled: true
+    channels: ["discord", "email"]
+    min_attempts: 2
+    retry_delay: "10m"
+    on_failure: "proceed" # proceed | block
+    top_patterns: 20
+    sample_lines_per_pattern: 2
+    format: "markdown" # markdown | html
+    template: ""
+    max_attachment: "8MiB"
+
+# In-memory ring buffer sizing and API query cache limits
+cache:
+  max_sources: 500
+  log_tail_lines: 300
+  overview_ttl: "3s"
+  query_ttl: "3s"
+
+# Outbound periodic health check ping (e.g. Healthchecks.io)
+heartbeat:
+  enabled: false
+  url: "${HEARTBEAT_URL:-https://hc-ping.com/example-uuid}"
+  interval: "5m"
+  timeout: "10s"
