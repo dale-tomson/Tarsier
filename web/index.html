@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tarsier lightweight single-server observability">
+  <title>Tarsier</title>
+  <link rel="stylesheet" href="/static/vendor/pico.min.css">
+  <link rel="stylesheet" href="/static/vendor/uPlot.min.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="/static/vendor/petite-vue.iife.js"></script>
+  <script src="/static/vendor/uPlot.iife.min.js"></script>
+  <script src="/static/js/components.js"></script>
+</head>
+<body v-scope>
+  <!-- Global Toast Notification Banner -->
+  <aside v-if="store.toast.visible" class="toast-container" aria-live="polite">
+    <div class="toast" :class="'toast-' + store.toast.type">
+      <span v-text="store.toast.message"></span>
+      <button class="toast-close" @click="store.toast.dismiss()" aria-label="Close notification">&times;</button>
+    </div>
+  </aside>
+
+  <!-- Login Modal Gate -->
+  <dialog class="login-dialog" :open="!store.authenticated">
+    <article>
+      <header>
+        <h3 style="margin-bottom: 0;">Sign In to Tarsier</h3>
+      </header>
+      <form @submit.prevent="store.login()">
+        <label for="login-username">
+          Username
+          <input id="login-username" type="text" v-model="store.loginForm.username" placeholder="admin" required autofocus autocomplete="username">
+        </label>
+        <label for="login-password">
+          Password
+          <input id="login-password" type="password" v-model="store.loginForm.password" placeholder="••••••••" required autocomplete="current-password">
+        </label>
+        <p v-if="store.loginForm.error" class="badge badge-danger" style="display: block; margin-bottom: 1rem; text-align: center;" v-text="store.loginForm.error"></p>
+        <button type="submit" :aria-busy="store.loginForm.loading">Sign In</button>
+      </form>
+    </article>
+  </dialog>
+
+  <!-- Authenticated Application Shell -->
+  <div v-if="store.authenticated">
+    <nav class="app-nav">
+      <ul>
+        <li>
+          <a href="#overview" class="brand-title" @click="store.setRoute('overview')">
+            <strong>Tarsier</strong>
+          </a>
+        </li>
+      </ul>
+      <ul class="nav-links">
+        <li><a href="#overview" :class="{ active: store.route === 'overview' }" @click="store.setRoute('overview')">Overview</a></li>
+        <li><a href="#host" :class="{ active: store.route === 'host' }" @click="store.setRoute('host')">Host</a></li>
+        <li><a href="#containers" :class="{ active: store.route === 'containers' }" @click="store.setRoute('containers')">Containers</a></li>
+        <li><a href="#logs" :class="{ active: store.route === 'logs' }" @click="store.setRoute('logs')">Logs</a></li>
+        <li><a href="#alerts" :class="{ active: store.route === 'alerts' }" @click="store.setRoute('alerts')">Alerts</a></li>
+        <li><a href="#settings" :class="{ active: store.route === 'settings' }" @click="store.setRoute('settings')">Settings</a></li>
+      </ul>
+      <ul class="nav-controls">
+        <li>
+          <select v-model="store.timeRange" aria-label="Time range">
+            <option value="1h">1h</option>
+            <option value="6h">6h</option>
+            <option value="24h">24h</option>
+            <option value="7d">7d</option>
+            <option value="30d">30d</option>
+          </select>
+        </li>
+        <li>
+          <select v-model="store.refreshInterval" aria-label="Auto-refresh interval">
+            <option value="0">Off</option>
+            <option value="5s">5s</option>
+            <option value="10s">10s</option>
+            <option value="30s">30s</option>
+          </select>
+        </li>
+        <li>
+          <button class="outline secondary" @click="store.cycleTheme()" title="Toggle light/dark/auto theme">
+            Theme: <span v-text="store.theme"></span>
+          </button>
+        </li>
+        <li>
+          <small><strong v-text="store.user"></strong></small>
+        </li>
+        <li>
+          <button class="outline" @click="store.logout()" title="Logout">Logout</button>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="container-fluid" style="padding-top: 0;">
+      <!-- 1. OVERVIEW VIEW -->
+      <section v-if="store.route === 'overview'">
+        <h2>System Overview</h2>
+        <div class="metric-grid">
+          <article class="metric-card">
+            <div class="metric-title">Host CPU</div>
+            <div class="metric-value">14.2%</div>
+            <div class="metric-sub">4 Cores &bull; 0.5 Load</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-title">Host Memory</div>
+            <div class="metric-value">42.9%</div>
+            <div class="metric-sub">3.4 GB / 8.0 GB</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-title">Containers</div>
+            <div class="metric-value">8 <small style="font-size: 1rem; color: #16a34a;">Running</small></div>
+            <div class="metric-sub">0 Stopped &bull; 0 Warning</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-title">Log Ingestion</div>
+            <div class="metric-value">124 <small style="font-size: 1rem;">lines/s</small></div>
+            <div class="metric-sub">64 KB block compression</div>
+          </article>
+        </div>
+
+        <article>
+          <header>
+            <h4 style="margin-bottom: 0;">Real-Time Resource Metrics</h4>
+          </header>
+          <div id="overview-chart" class="chart-panel" @vue:mounted="overviewChart.mounted($el)" @vue:unmounted="overviewChart.unmounted()"></div>
+        </article>
+      </section>
+
+      <!-- 2. HOST VIEW -->
+      <section v-if="store.route === 'host'">
+        <h2>Host Metrics</h2>
+        <div class="metric-grid">
+          <article class="metric-card">
+            <div class="metric-title">CPU Usage</div>
+            <div class="metric-value">14.2%</div>
+            <div class="metric-sub">User: 9.8% &bull; System: 4.4%</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-title">Memory Available</div>
+            <div class="metric-value">4.6 GB</div>
+            <div class="metric-sub">Total: 8.0 GB &bull; Swap: 0%</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-title">Root Disk (/)</div>
+            <div class="metric-value">38%</div>
+            <div class="metric-sub">42.1 GB used / 110 GB free</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-title">Network I/O</div>
+            <div class="metric-value">1.8 MB/s</div>
+            <div class="metric-sub">Rx: 1.2 MB/s &bull; Tx: 0.6 MB/s</div>
+          </article>
+        </div>
+        <article>
+          <header><h4>Disk Filesystems</h4></header>
+          <table>
+            <thead>
+              <tr><th>Mount</th><th>Filesystem</th><th>Used</th><th>Available</th><th>Capacity</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>/</code></td><td>ext4</td><td>38 GB</td><td>62 GB</td><td>38%</td></tr>
+              <tr><td><code>/data</code></td><td>ext4</td><td>12 GB</td><td>88 GB</td><td>12%</td></tr>
+            </tbody>
+          </table>
+        </article>
+      </section>
+
+      <!-- 3. CONTAINERS VIEW -->
+      <section v-if="store.route === 'containers'">
+        <h2>Containers</h2>
+        <article>
+          <table class="striped">
+            <thead>
+              <tr><th>Name</th><th>Image</th><th>Status</th><th>CPU %</th><th>Memory</th><th>Uptime</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>tarsier-app</code></td>
+                <td>tarsier:latest</td>
+                <td><span class="badge badge-success">Running</span></td>
+                <td>1.2%</td>
+                <td>68 MB / 256 MB</td>
+                <td>3d 14h</td>
+              </tr>
+              <tr>
+                <td><code>caddy-proxy</code></td>
+                <td>caddy:2-alpine</td>
+                <td><span class="badge badge-success">Running</span></td>
+                <td>0.4%</td>
+                <td>24 MB / 128 MB</td>
+                <td>12d 6h</td>
+              </tr>
+              <tr>
+                <td><code>postgres-db</code></td>
+                <td>postgres:16-alpine</td>
+                <td><span class="badge badge-success">Running</span></td>
+                <td>2.8%</td>
+                <td>142 MB / 512 MB</td>
+                <td>12d 6h</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+      </section>
+
+      <!-- 4. LOGS VIEW -->
+      <section v-if="store.route === 'logs'">
+        <h2>Log Explorer</h2>
+        <div class="grid" style="margin-bottom: 1rem;">
+          <input type="search" placeholder="Search logs (Boyer-Moore / zero-alloc substring filter)..." aria-label="Search logs">
+          <select aria-label="Log level filter" style="max-width: 160px;">
+            <option value="">All Levels</option>
+            <option value="error">Error / Fatal</option>
+            <option value="warn">Warning</option>
+            <option value="info">Info</option>
+            <option value="debug">Debug</option>
+          </select>
+        </div>
+        <div class="log-viewer">
+          <table class="log-table">
+            <thead>
+              <tr><th style="width: 180px;">Timestamp</th><th style="width: 80px;">Level</th><th style="width: 140px;">Source</th><th>Message</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><small>2026-11-13 10:45:12.102</small></td>
+                <td><span class="badge badge-success">INFO</span></td>
+                <td><code>server</code></td>
+                <td class="log-msg">HTTP server listening on :8080 (GOMEMLIMIT=200MiB active)</td>
+              </tr>
+              <tr>
+                <td><small>2026-11-13 10:45:12.105</small></td>
+                <td><span class="badge badge-success">INFO</span></td>
+                <td><code>sqlite</code></td>
+                <td class="log-msg">Config database WAL mode initialized; single-writer worker online</td>
+              </tr>
+              <tr>
+                <td><small>2026-11-13 10:45:12.108</small></td>
+                <td><span class="badge badge-success">INFO</span></td>
+                <td><code>logs</code></td>
+                <td class="log-msg">Zstandard 64 KB block compression ready; sparse binary indexes loaded</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 5. ALERTS VIEW -->
+      <section v-if="store.route === 'alerts'">
+        <h2>Alert Rules & State</h2>
+        <article>
+          <header><h4>Active Alerts</h4></header>
+          <p><span class="badge badge-success">All Clear</span> No active firing alerts across monitored targets.</p>
+        </article>
+        <article>
+          <header><h4>Configured Rules</h4></header>
+          <table class="striped">
+            <thead>
+              <tr><th>Rule Name</th><th>Target</th><th>Condition</th><th>Duration</th><th>State</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>High Host CPU</strong></td>
+                <td>Host</td>
+                <td><code>cpu_utilization &gt; 90%</code></td>
+                <td>5m</td>
+                <td><span class="badge badge-muted">OK</span></td>
+              </tr>
+              <tr>
+                <td><strong>High Host Memory</strong></td>
+                <td>Host</td>
+                <td><code>memory_utilization &gt; 92%</code></td>
+                <td>5m</td>
+                <td><span class="badge badge-muted">OK</span></td>
+              </tr>
+              <tr>
+                <td><strong>Container CrashLoop</strong></td>
+                <td>Docker</td>
+                <td><code>container_restart_count &gt; 3</code></td>
+                <td>10m</td>
+                <td><span class="badge badge-muted">OK</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+      </section>
+
+      <!-- 6. SETTINGS VIEW -->
+      <section v-if="store.route === 'settings'">
+        <h2>System Settings & Health</h2>
+        <div class="grid">
+          <article v-if="store.systemHealth">
+            <header><h4>System Health</h4></header>
+            <p><strong>Status:</strong> <span class="badge badge-success" v-text="store.systemHealth.status"></span></p>
+            <p><strong>Uptime:</strong> <span v-text="store.systemHealth.uptime_seconds"></span> seconds</p>
+            <p><strong>Go Version:</strong> <code v-text="store.systemHealth.go_version"></code></p>
+            <p><strong>Tarsier Version:</strong> <span v-text="store.systemHealth.version"></span></p>
+            <div v-if="store.systemHealth.memory">
+              <p><strong>Memory Alloc:</strong> <span v-text="(store.systemHealth.memory.alloc_bytes / 1048576).toFixed(2)"></span> MB</p>
+              <p><strong>GC Cycles:</strong> <span v-text="store.systemHealth.memory.num_gc"></span></p>
+            </div>
+          </article>
+          <article v-if="store.systemConfig">
+            <header><h4>Configuration Summary</h4></header>
+            <p><strong>Server Listen:</strong> <code v-text="store.systemConfig.server.listen"></code></p>
+            <p><strong>Timezone:</strong> <span v-text="store.systemConfig.server.timezone"></span></p>
+            <p><strong>Storage Path:</strong> <code v-text="store.systemConfig.storage.path"></code></p>
+            <p><strong>Log Cap / Metric Cap:</strong> <span v-text="store.systemConfig.storage.logs_max_size + ' / ' + store.systemConfig.storage.metrics_max_size"></span></p>
+            <p><strong>Retention:</strong> <span v-text="'Logs: ' + store.systemConfig.retention.logs + ', Raw: ' + store.systemConfig.retention.metrics_raw"></span></p>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
