@@ -218,6 +218,10 @@
         if (window.containersView && window.containersView.refresh) {
           window.containersView.refresh();
         }
+      } else if (store.route === 'logs') {
+        if (window.logsView && window.logsView.mounted) {
+          window.logsView.mounted();
+        }
       }
     }
   });
@@ -235,11 +239,14 @@
   window.hostView = hostView;
   const containersView = window.ContainersController ? window.ContainersController(store) : {};
   window.containersView = containersView;
+  const logsView = window.LogsController ? window.LogsController(store) : {};
+  window.logsView = logsView;
 
   window.PetiteVue.createApp({
     store,
     hostView,
     containersView,
+    logsView,
     overviewChart: window.ChartPanel ? window.ChartPanel('overview-chart') : {}
   }).mount();
 
@@ -251,6 +258,9 @@
       }
       if (store.route === 'containers' || store.route === 'overview') {
         containersView.refresh();
+      }
+      if (store.route === 'logs') {
+        logsView.pollLatest();
       }
     }
   });

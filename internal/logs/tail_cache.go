@@ -374,6 +374,17 @@ func (c *TailCache) ActiveSources() int {
 	return len(c.rings)
 }
 
+// BufferedLines returns the current count of buffered log lines in memory for sourceID.
+func (c *TailCache) BufferedLines(sourceID int64) int {
+	c.mu.RLock()
+	ring := c.rings[sourceID]
+	c.mu.RUnlock()
+	if ring == nil {
+		return 0
+	}
+	return ring.Count()
+}
+
 // EvictedSources returns the cumulative count of evicted source rings.
 func (c *TailCache) EvictedSources() uint64 {
 	return c.evictedSources.Load()
