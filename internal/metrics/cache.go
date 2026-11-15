@@ -311,6 +311,20 @@ func (c *HotCache) OldestTS(entity, metric string) int64 {
 	return 0
 }
 
+// EntitiesWithMetric returns all unique entities that have recorded samples for the given metric.
+func (c *HotCache) EntitiesWithMetric(metric string) []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var entities []string
+	for key := range c.rings {
+		if key.Metric == metric {
+			entities = append(entities, key.Entity)
+		}
+	}
+	return entities
+}
+
 // Stats returns a snapshot of cache metrics.
 func (c *HotCache) Stats() CacheStats {
 	c.mu.RLock()
