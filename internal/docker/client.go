@@ -197,6 +197,45 @@ func (c *Client) InspectContainer(ctx context.Context, id string) (ContainerInsp
 	return inspect, nil
 }
 
+// GetContainerStats queries GET /containers/{id}/stats?stream=false and decodes the cgroup metrics payload.
+func (c *Client) GetContainerStats(ctx context.Context, id string) (DockerStatsPayload, error) {
+	if strings.TrimSpace(id) == "" {
+		return DockerStatsPayload{}, errors.New("container id must not be empty")
+	}
+
+	endpoint := fmt.Sprintf("http://localhost/containers/%s/stats?stream=false", url.PathEscape(id))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return DockerStatsPayload{}, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		if isSocketUnavailable(err) {
+			return DockerStatsPayload{}, fmt.Errorf("%w: %v", ErrSocketUnavailable, err)
+		}
+		return DockerStatsPayload{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return DockerStatsPayload{}, ErrContainerNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return DockerStatsPayload{}, fmt.Errorf("container stats unexpected status: %d", resp.StatusCode)
+	}
+
+	// 512 KiB limit reader cap for individual container stats payloads
+	lr := io.LimitReader(resp.Body, 512<<10)
+
+	var payload DockerStatsPayload
+	if err := json.NewDecoder(lr).Decode(&payload); err != nil {
+		return DockerStatsPayload{}, fmt.Errorf("decode stats json: %w", err)
+	}
+
+	return payload, nil
+}
+
 func isSocketUnavailable(err error) bool {
 	if err == nil {
 		return false
