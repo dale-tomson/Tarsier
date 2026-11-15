@@ -94,18 +94,23 @@ var ConfigSchemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_alert_event_started ON alert_event(started DESC);`,
 	`CREATE INDEX IF NOT EXISTS idx_alert_event_created ON alert_event(created_at DESC);`,
 
-	`CREATE TABLE IF NOT EXISTS cleanup_history (
-		id INTEGER PRIMARY KEY,
+	`CREATE TABLE IF NOT EXISTS cleanup_run (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		trigger TEXT NOT NULL,
+		dry_run INTEGER NOT NULL DEFAULT 0,
 		started_at INTEGER NOT NULL,
 		finished_at INTEGER NOT NULL,
-		dry_run INTEGER NOT NULL DEFAULT 0,
-		status TEXT NOT NULL,
-		deleted_metrics INTEGER NOT NULL DEFAULT 0,
-		deleted_chunks INTEGER NOT NULL DEFAULT 0,
-		freed_bytes INTEGER NOT NULL DEFAULT 0,
-		report_format TEXT NOT NULL DEFAULT '',
-		report_body TEXT NOT NULL DEFAULT ''
+		logs_deleted INTEGER NOT NULL DEFAULT 0,
+		metrics_deleted INTEGER NOT NULL DEFAULT 0,
+		events_deleted INTEGER NOT NULL DEFAULT 0,
+		bytes_reclaimed INTEGER NOT NULL DEFAULT 0,
+		report_status TEXT NOT NULL DEFAULT '',
+		report_detail TEXT NOT NULL DEFAULT '',
+		report_body TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL
 	);`,
+
+	`CREATE INDEX IF NOT EXISTS idx_cleanup_run_started ON cleanup_run(started_at DESC);`,
 
 	`CREATE TABLE IF NOT EXISTS session (
 		id TEXT PRIMARY KEY,
