@@ -147,7 +147,11 @@ func (e LogEntry) String() string {
 
 // MetricSample represents a single numeric telemetry measurement.
 type MetricSample struct {
-	Timestamp time.Time
-	SeriesID  int64
-	Value     float64
+	Entity string  // e.g., "host", "disk:/", "disk:/mnt/data", "container:api"
+	Metric string  // e.g., "cpu_pct", "mem_used", "disk_used_pct", "net_rx_bps"
+	TS     int64   // Unix timestamp in seconds
+	Value  float64
 }
+
+// Sample is an alias for MetricSample.
+type Sample = MetricSample
