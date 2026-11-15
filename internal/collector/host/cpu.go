@@ -16,7 +16,24 @@ type cpuTicks struct {
 	idleAll uint64
 }
 
-// readCPUTicks parses /proc/stat and returns tick counts for "cpu" and individual cores ("cpu0", "cpu1", ...).
+// CountCores inspects /proc/stat in procDir to count detected CPU cores ("cpu0", "cpu1", ...).
+// If /proc/stat is unreadable or has no individual cores, it returns fallback.
+func CountCores(procDir string, fallback int) int {
+	ticks, err := readCPUTicks(procDir)
+	if err != nil || len(ticks) == 0 {
+		return fallback
+	}
+	count := 0
+	for k := range ticks {
+		if k != "cpu" && strings.HasPrefix(k, "cpu") {
+			count++
+		}
+	}
+	if count > 0 {
+		return count
+	}
+	return fallback
+}
 func readCPUTicks(procDir string) (map[string]cpuTicks, error) {
 	path := filepath.Join(procDir, "stat")
 	f, err := os.Open(path)

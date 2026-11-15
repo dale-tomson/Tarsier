@@ -13,7 +13,6 @@ services:
     user: "0:0"
     read_only: true
     mem_limit: 256m
-    cpus: 1.0
     security_opt:
       - no-new-privileges:true
     env_file:

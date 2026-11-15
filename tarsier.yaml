@@ -35,8 +35,8 @@ retention:
 host:
   enabled: true
   interval: "10s"
-  disks: []
-  disk_exclude_fs: ["tmpfs", "overlay", "squashfs", "devtmpfs"]
+  disks: ["/"]
+  disk_exclude_fs: ["tmpfs", "squashfs", "devtmpfs"]
 
 # Docker container discovery & stats streaming
 docker:

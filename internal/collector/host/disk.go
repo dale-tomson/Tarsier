@@ -111,8 +111,10 @@ func parseMountinfo(path string, excludes map[string]struct{}) ([]string, error)
 		}
 
 		fsType := strings.ToLower(fields[hyphenIdx+1])
-		if _, excluded := excludes[fsType]; excluded {
-			continue
+		if mountPoint != "/" {
+			if _, excluded := excludes[fsType]; excluded {
+				continue
+			}
 		}
 
 		if existing, exists := devMap[majorMinor]; !exists {
@@ -156,8 +158,10 @@ func parseMounts(path string, excludes map[string]struct{}) ([]string, error) {
 		mountPoint := fields[1]
 		fsType := strings.ToLower(fields[2])
 
-		if _, excluded := excludes[fsType]; excluded {
-			continue
+		if mountPoint != "/" {
+			if _, excluded := excludes[fsType]; excluded {
+				continue
+			}
 		}
 
 		if existing, exists := devMap[dev]; !exists {
