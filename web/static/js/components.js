@@ -44,56 +44,27 @@ if (this._timer) clearTimeout(this._timer);
 }
 };
 }
-function ChartPanel(containerId, options, initialData) {
+function ChartPanel(containerId) {
 return {
-chart: null,
 mounted(el) {
-if (!window.uPlot) return;
-const target = el || document.getElementById(containerId);
-if (!target) return;
-const rect = target.getBoundingClientRect();
-const width = Math.floor(rect.width) || 600;
-const height = 220;
-const opts = options || {
-title: "System CPU & Memory (Sample)",
-width: width,
-height: height,
+const C = window.TarsierCharts;
+if (!C || !el) return;
+C.mountChart(el, containerId, {
+title: '',
+range: [0, 100],
+valFmt: v => (v != null ? v.toFixed(1) + '%' : '--'),
 series: [
-{},
-{ label: "CPU %", stroke: "#2563eb", width: 2 },
-{ label: "RAM %", stroke: "#16a34a", width: 2 }
-],
-axes: [
-{},
-{
-label: "%",
-values: (u, vals) => vals.map(v => v != null ? v.toFixed(1) + "%" : "")
-}
+{ label: 'CPU %', stroke: '#2563eb', fill: 'rgba(37, 99, 235, 0.1)' },
+{ label: 'RAM %', stroke: '#16a34a', fill: 'rgba(22, 163, 74, 0.1)' }
 ]
-};
-const now = Math.floor(Date.now() / 1000);
-const data = initialData || [
-[now - 300, now - 240, now - 180, now - 120, now - 60, now],
-[12.5, 15.2, 11.0, 18.4, 13.8, 14.2],
-[42.1, 42.4, 42.8, 43.1, 43.0, 42.9]
-];
-this.chart = new window.uPlot(opts, data, target);
-this._onResize = () => {
-if (this.chart && target) {
-const w = Math.floor(target.getBoundingClientRect().width);
-if (w > 0) this.chart.setSize({ width: w, height: height });
+});
+if (window.hostView && window.hostView.updateOverviewChart) {
+window.hostView.updateOverviewChart();
 }
-};
-window.addEventListener('resize', this._onResize);
 },
 unmounted() {
-if (this._onResize) {
-window.removeEventListener('resize', this._onResize);
-this._onResize = null;
-}
-if (this.chart) {
-this.chart.destroy();
-this.chart = null;
+if (window.TarsierCharts) {
+window.TarsierCharts.unmountChart(containerId);
 }
 }
 };
