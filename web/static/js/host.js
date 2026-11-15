@@ -59,6 +59,8 @@ memAvail: '--',
 load1: '--',
 load5: '--',
 load15: '--',
+diskTotal: '--',
+diskUsed: '--',
 diskAvail: '--',
 diskUsedPct: '--'
 },
@@ -167,7 +169,7 @@ return (res && res.points) || [];
 return [];
 }
 };
-const [cpuPts, l1Pts, l5Pts, l15Pts, memUsedPts, memAvailPts, swapUsedPts, netRxPts, netTxPts, diskReadPts, diskWritePts, diskUsedPctPts] = await Promise.all([
+const [cpuPts, l1Pts, l5Pts, l15Pts, memUsedPts, memAvailPts, swapUsedPts, netRxPts, netTxPts, diskReadPts, diskWritePts, diskUsedPctPts, diskTotalPts, diskUsedPts] = await Promise.all([
 fetchMetric('cpu_pct'),
 fetchMetric('load_1m'),
 fetchMetric('load_5m'),
@@ -179,7 +181,9 @@ fetchMetric('net_rx_bps'),
 fetchMetric('net_tx_bps'),
 fetchMetric('disk_read_bps'),
 fetchMetric('disk_write_bps'),
-fetchMetric('disk_used_pct', 'disk:/')
+fetchMetric('disk_used_pct', 'disk:/'),
+fetchMetric('disk_total_bytes', 'disk:/'),
+fetchMetric('disk_used_bytes', 'disk:/')
 ]);
 if (cpuPts.length > 0) this.current.cpuPct = cpuPts[cpuPts.length - 1].v.toFixed(1) + '%';
 if (memUsedPts.length > 0) this.current.memUsed = formatBytes(memUsedPts[memUsedPts.length - 1].v);
@@ -187,6 +191,8 @@ if (memAvailPts.length > 0) this.current.memAvail = formatBytes(memAvailPts[memA
 if (l1Pts.length > 0) this.current.load1 = l1Pts[l1Pts.length - 1].v.toFixed(2);
 if (l5Pts.length > 0) this.current.load5 = l5Pts[l5Pts.length - 1].v.toFixed(2);
 if (l15Pts.length > 0) this.current.load15 = l15Pts[l15Pts.length - 1].v.toFixed(2);
+if (diskTotalPts.length > 0) this.current.diskTotal = formatBytes(diskTotalPts[diskTotalPts.length - 1].v);
+if (diskUsedPts.length > 0) this.current.diskUsed = formatBytes(diskUsedPts[diskUsedPts.length - 1].v);
 if (diskUsedPctPts.length > 0) this.current.diskUsedPct = diskUsedPctPts[diskUsedPctPts.length - 1].v.toFixed(1) + '%';
 const C = window.TarsierCharts;
 C.updateChart('chart-cpu', alignChartData([cpuPts]));
