@@ -15,8 +15,11 @@ import (
 
 	"github.com/dale-tomson/Tarsier/internal/api"
 	"github.com/dale-tomson/Tarsier/internal/auth"
+	"github.com/dale-tomson/Tarsier/internal/collector/host"
 	"github.com/dale-tomson/Tarsier/internal/config"
 	"github.com/dale-tomson/Tarsier/internal/db"
+	"github.com/dale-tomson/Tarsier/internal/metrics"
+	"github.com/dale-tomson/Tarsier/internal/model"
 )
 
 // Build metadata injected via -ldflags during compilation.
@@ -123,11 +126,61 @@ func main() {
 		Lockout:     lockout,
 	})
 
+	// Initialize metrics ingestion pipeline & in-memory hot cache
+	ingestor, err := metrics.NewIngestor(store.Metrics, metrics.IngestOptions{
+		MaxBatchSize:  500,
+		FlushInterval: 500 * time.Millisecond,
+		QueueCapacity: 4096,
+		MaxSeries:     10000,
+		RingCapacity:  180,
+	})
+	if err != nil {
+		log.Fatalf("Fatal: failed to initialize metrics ingestor: %v", err)
+	}
+	defer func() {
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer flushCancel()
+		if err := ingestor.Close(flushCtx); err != nil {
+			log.Printf("Error flushing metrics ingestor: %v", err)
+		}
+	}()
+
+	// Initialize background metric rollup downsampler (1m, 5m, 1d)
+	rollup := metrics.NewRollupEngine(store.Metrics, nil)
+	go rollup.Start(ctx)
+
+	// Start host collector if enabled
+	if cfg.Host.Enabled == nil || *cfg.Host.Enabled {
+		hostChan := make(chan model.MetricSample, 4096)
+		hostCollector, err := host.NewCollector(cfg.Host, hostChan)
+		if err != nil {
+			log.Printf("Warning: failed to initialize host collector: %v", err)
+		} else {
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case sample, ok := <-hostChan:
+						if !ok {
+							return
+						}
+						ingestor.Push(sample)
+					}
+				}
+			}()
+			go hostCollector.Run(ctx)
+			log.Printf("Host collector started (interval: %s)", cfg.Host.Interval)
+		}
+	}
+
 	// Initialize HTTP API and static asset server
 	server, err := api.NewServer(api.ServerConfig{
 		Config:    cfg,
 		ConfigDB:  store.Config,
 		MetricsDB: store.Metrics,
+		HotCache:  ingestor.Cache(),
+		Rollup:    rollup,
 		Auth:      authenticator,
 		Sessions:  sessions,
 		Limiter:   limiter,
