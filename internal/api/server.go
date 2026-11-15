@@ -30,8 +30,9 @@ type ServerConfig struct {
 	Clock     metrics.Clock
 	Auth      *auth.Authenticator
 	Sessions  *auth.SessionStore
-	Limiter   *auth.RateLimiter
-	Version   string
+	Limiter         *auth.RateLimiter
+	DockerConnected func() bool
+	Version         string
 }
 
 type defaultServerClock struct{}
@@ -76,8 +77,9 @@ type Server struct {
 	queryCache   *QueryCache
 	auth         *auth.Authenticator
 	sessions     *auth.SessionStore
-	limiter      *auth.RateLimiter
-	authHandlers *auth.Handlers
+	limiter             *auth.RateLimiter
+	dockerConnectedFunc func() bool
+	authHandlers        *auth.Handlers
 	assets       *AssetsHandler
 	router       *chi.Mux
 	mu           sync.RWMutex
@@ -125,8 +127,9 @@ func NewServer(sc ServerConfig) (*Server, error) {
 		queryCache:   queryCache,
 		auth:         sc.Auth,
 		sessions:     sc.Sessions,
-		limiter:      sc.Limiter,
-		authHandlers: authHandlers,
+		limiter:             sc.Limiter,
+		dockerConnectedFunc: sc.DockerConnected,
+		authHandlers:        authHandlers,
 		assets:       assets,
 		version:      version,
 		startTime:    time.Now(),
@@ -167,6 +170,9 @@ func (s *Server) setupRoutes() {
 				authGroup.Get("/host/metrics", s.handleHostMetrics)
 				authGroup.Get("/metrics/daily/summary", s.handleDailySummary)
 				authGroup.Get("/metrics/daily", s.handleDailyHistory)
+
+				authGroup.Get("/containers", s.handleContainersList)
+				authGroup.Get("/containers/{name}", s.handleContainerDetail)
 			})
 		}
 	})

@@ -140,6 +140,7 @@ func TestStaticAssets_ServedAndCompressed(t *testing.T) {
 		{"/static/js/app.js", "application/javascript; charset=utf-8", false},
 		{"/static/js/charts.js", "application/javascript; charset=utf-8", false},
 		{"/static/js/host.js", "application/javascript; charset=utf-8", false},
+		{"/static/js/containers.js", "application/javascript; charset=utf-8", false},
 		{"/static/css/app.css", "text/css; charset=utf-8", false},
 	}
 

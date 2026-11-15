@@ -13,6 +13,7 @@
   <script src="/static/js/components.js"></script>
   <script src="/static/js/charts.js"></script>
   <script src="/static/js/host.js"></script>
+  <script src="/static/js/containers.js"></script>
 </head>
 <body v-scope>
   <!-- Global Toast Notification Banner -->
@@ -127,6 +128,31 @@
           </header>
           <div id="overview-chart" class="chart-panel" @vue:mounted="overviewChart.mounted($el)" @vue:unmounted="overviewChart.unmounted()"></div>
         </article>
+
+        <!-- Container Status Grid -->
+        <article v-if="containersView && containersView.containers.length > 0">
+          <header style="display: flex; justify-content: space-between; align-items: center;">
+            <h4 style="margin-bottom: 0;">Container Status Grid</h4>
+            <a href="#containers" @click="store.setRoute('containers')"><small>View all &rarr;</small></a>
+          </header>
+          <div class="container-tiles">
+            <div
+              v-for="c in containersView.containers"
+              :key="c.id"
+              class="container-tile"
+              @click="store.setRoute('containers'); containersView.openDetail(c.name);"
+              :title="c.name + ' (' + c.state + ')'"
+            >
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.25rem;">
+                <span class="tile-name" v-text="c.name"></span>
+                <span :class="'status-pill status-' + c.health" style="padding: 0.1rem 0.35rem; font-size: 0.65rem;">
+                  <span class="status-dot"></span>
+                </span>
+              </div>
+              <span class="tile-sub" v-text="(c.metrics && c.metrics.cpu_pct != null ? c.metrics.cpu_pct.toFixed(1) + '% CPU' : '--')"></span>
+            </div>
+          </div>
+        </article>
       </section>
 
       <!-- 2. HOST VIEW -->
@@ -205,41 +231,188 @@
       </section>
 
       <!-- 3. CONTAINERS VIEW -->
-      <section v-if="store.route === 'containers'">
-        <h2>Containers</h2>
+      <section v-if="store.route === 'containers'" @vue:mounted="containersView.mounted()" @vue:unmounted="containersView.unmounted()">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h2 style="margin-bottom: 0;">Containers</h2>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input
+              type="search"
+              v-model="containersView.search"
+              placeholder="Search containers..."
+              style="margin-bottom: 0; min-width: 220px;"
+            >
+            <button class="outline" @click="containersView.refresh()" title="Refresh container list">Refresh</button>
+          </div>
+        </div>
+
+        <!-- Disconnected Daemon Banner -->
+        <article v-if="!containersView.dockerConnected" style="background-color: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.3); margin-bottom: 1.5rem; padding: 0.75rem 1rem;">
+          <p style="margin-bottom: 0; color: #ca8a04;">
+            <strong>Docker daemon disconnected</strong> — showing last known container state from local cache.
+          </p>
+        </article>
+
+        <!-- Containers Table -->
         <article>
           <table class="striped">
             <thead>
-              <tr><th>Name</th><th>Image</th><th>Status</th><th>CPU %</th><th>Memory</th><th>Uptime</th></tr>
+              <tr>
+                <th class="sortable" @click="containersView.setSort('state')">
+                  Status <span v-if="containersView.sortCol === 'state'">{{ containersView.sortAsc ? '▲' : '▼' }}</span>
+                </th>
+                <th class="sortable" @click="containersView.setSort('name')">
+                  Container <span v-if="containersView.sortCol === 'name'">{{ containersView.sortAsc ? '▲' : '▼' }}</span>
+                </th>
+                <th class="sortable" @click="containersView.setSort('cpu')">
+                  CPU % <span v-if="containersView.sortCol === 'cpu'">{{ containersView.sortAsc ? '▲' : '▼' }}</span>
+                </th>
+                <th class="sortable" @click="containersView.setSort('mem')">
+                  Memory <span v-if="containersView.sortCol === 'mem'">{{ containersView.sortAsc ? '▲' : '▼' }}</span>
+                </th>
+                <th>Net I/O</th>
+                <th class="sortable" @click="containersView.setSort('restarts')">
+                  Restarts <span v-if="containersView.sortCol === 'restarts'">{{ containersView.sortAsc ? '▲' : '▼' }}</span>
+                </th>
+                <th style="text-align: right;">Actions</th>
+              </tr>
             </thead>
             <tbody>
-              <tr>
-                <td><code>tarsier-app</code></td>
-                <td>tarsier:latest</td>
-                <td><span class="badge badge-success">Running</span></td>
-                <td>1.2%</td>
-                <td>68 MB / 256 MB</td>
-                <td>3d 14h</td>
+              <tr v-if="containersView.filteredContainers.length === 0">
+                <td colspan="7" style="text-align: center; color: var(--pico-muted-color);">
+                  No containers found.
+                </td>
               </tr>
-              <tr>
-                <td><code>caddy-proxy</code></td>
-                <td>caddy:2-alpine</td>
-                <td><span class="badge badge-success">Running</span></td>
-                <td>0.4%</td>
-                <td>24 MB / 128 MB</td>
-                <td>12d 6h</td>
-              </tr>
-              <tr>
-                <td><code>postgres-db</code></td>
-                <td>postgres:16-alpine</td>
-                <td><span class="badge badge-success">Running</span></td>
-                <td>2.8%</td>
-                <td>142 MB / 512 MB</td>
-                <td>12d 6h</td>
+              <tr v-for="c in containersView.filteredContainers" :key="c.id">
+                <td>
+                  <span :class="'status-pill status-' + c.health">
+                    <span class="status-dot"></span>
+                    <span v-text="c.state"></span>
+                  </span>
+                </td>
+                <td>
+                  <div><strong v-text="c.name"></strong></div>
+                  <small style="color: var(--pico-muted-color); font-size: 0.75rem;" v-text="c.image"></small>
+                </td>
+                <td>
+                  <div><span v-text="(c.metrics && c.metrics.cpu_pct != null ? c.metrics.cpu_pct.toFixed(1) + '%' : '--')"></span></div>
+                  <span class="dual-stat" v-if="c.today && c.today.cpu && c.today.cpu.avg_pct > 0" v-text="c.today.cpu.avg_pct.toFixed(1) + '% avg (pk ' + c.today.cpu.peak_pct.toFixed(1) + '%)'"></span>
+                </td>
+                <td>
+                  <div><span v-text="(c.metrics ? containersView.formatBytes(c.metrics.mem_used) : '--')"></span></div>
+                  <span class="dual-stat" v-if="c.today && c.today.ram && c.today.ram.avg_bytes > 0" v-text="containersView.formatBytes(c.today.ram.avg_bytes) + ' avg (pk ' + containersView.formatBytes(c.today.ram.peak_bytes) + ')'"></span>
+                </td>
+                <td>
+                  <small v-if="c.metrics">
+                    RX: <span v-text="containersView.formatBps(c.metrics.net_rx_bps)"></span><br>
+                    TX: <span v-text="containersView.formatBps(c.metrics.net_tx_bps)"></span>
+                  </small>
+                  <small v-else>--</small>
+                </td>
+                <td>
+                  <span :class="c.restart_count > 0 ? 'badge badge-warning' : 'badge badge-muted'" v-text="c.restart_count"></span>
+                </td>
+                <td style="text-align: right;">
+                  <button class="outline secondary" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; margin-right: 0.3rem;" @click="containersView.openDetail(c.name)">Details</button>
+                  <button class="outline" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" @click="containersView.viewLogs(c.name)">Logs</button>
+                </td>
               </tr>
             </tbody>
           </table>
         </article>
+
+        <!-- Container Detail Modal Dialog -->
+        <dialog :open="containersView.detailModalOpen" class="modal-wide">
+          <article v-if="containersView.detailData">
+            <header style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <h3 style="margin-bottom: 0;">
+                  <span v-text="containersView.detailData.container.name"></span>
+                  <span :class="'status-pill status-' + containersView.detailData.container.health" style="margin-left: 0.5rem;">
+                    <span class="status-dot"></span>
+                    <span v-text="containersView.detailData.container.state"></span>
+                  </span>
+                </h3>
+                <small style="color: var(--pico-muted-color);" v-text="containersView.detailData.container.image"></small>
+              </div>
+              <button aria-label="Close" class="close" @click="containersView.closeDetail()"></button>
+            </header>
+
+            <!-- Metrics Snapshot Row -->
+            <div class="grid" style="margin-bottom: 1rem;">
+              <div><strong>Uptime:</strong> <span v-text="containersView.formatUptime(containersView.detailData.container.uptime_s)"></span></div>
+              <div><strong>Restarts:</strong> <span v-text="containersView.detailData.container.restart_count"></span></div>
+              <div><strong>First Seen:</strong> <small v-text="containersView.detailData.container.first_seen"></small></div>
+              <div><strong>Last Seen:</strong> <small v-text="containersView.detailData.container.last_seen"></small></div>
+            </div>
+
+            <!-- Detail uPlot Charts Grid -->
+            <div class="charts-grid" style="margin-bottom: 1.5rem;">
+              <article class="chart-card">
+                <header><h4>CPU Utilization (%)</h4></header>
+                <div id="modal-chart-cpu" class="chart-panel" style="height: 180px;"></div>
+              </article>
+              <article class="chart-card">
+                <header><h4>Memory Usage</h4></header>
+                <div id="modal-chart-mem" class="chart-panel" style="height: 180px;"></div>
+              </article>
+            </div>
+            <article class="chart-card" style="margin-bottom: 1.5rem;">
+              <header><h4>Network Throughput (RX / TX)</h4></header>
+              <div id="modal-chart-net" class="chart-panel" style="height: 180px;"></div>
+            </article>
+
+            <!-- Daily Average vs Peak History -->
+            <article style="margin-bottom: 1.5rem;">
+              <header><h4>Daily Average vs. Peak History</h4></header>
+              <table class="striped">
+                <thead>
+                  <tr><th>Date</th><th>CPU Avg %</th><th>CPU Peak %</th><th>RAM Avg</th><th>RAM Peak</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-if="containersView.detailData.daily_history.length === 0">
+                    <td colspan="5" style="text-align: center; color: var(--pico-muted-color);">No daily rollups recorded yet.</td>
+                  </tr>
+                  <tr v-for="dh in containersView.detailData.daily_history" :key="dh.date">
+                    <td><code v-text="dh.date"></code></td>
+                    <td v-text="dh.cpu.avg_pct.toFixed(1) + '%'"></td>
+                    <td><strong v-text="dh.cpu.peak_pct.toFixed(1) + '%'"></strong></td>
+                    <td v-text="containersView.formatBytes(dh.ram.avg_bytes)"></td>
+                    <td><strong v-text="containersView.formatBytes(dh.ram.peak_bytes)"></strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </article>
+
+            <!-- Lifecycle Event Timeline -->
+            <article>
+              <header><h4>Recent Lifecycle Events</h4></header>
+              <table class="striped">
+                <thead>
+                  <tr><th>Timestamp</th><th>Action</th><th>Details</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-if="containersView.detailData.recent_events.length === 0">
+                    <td colspan="3" style="text-align: center; color: var(--pico-muted-color);">No lifecycle events recorded.</td>
+                  </tr>
+                  <tr v-for="ev in containersView.detailData.recent_events" :key="ev.id">
+                    <td><small v-text="ev.ts"></small></td>
+                    <td>
+                      <span :class="'badge ' + (ev.type === 'start' ? 'badge-success' : (ev.type === 'restart' ? 'badge-warning' : 'badge-danger'))" v-text="ev.type"></span>
+                    </td>
+                    <td><code v-text="ev.detail || '--'"></code></td>
+                  </tr>
+                </tbody>
+              </table>
+            </article>
+
+            <footer>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <button class="outline" @click="containersView.viewLogs(containersView.detailData.container.name)">View Logs</button>
+                <button class="secondary" @click="containersView.closeDetail()">Close</button>
+              </div>
+            </footer>
+          </article>
+        </dialog>
       </section>
 
       <!-- 4. LOGS VIEW -->
