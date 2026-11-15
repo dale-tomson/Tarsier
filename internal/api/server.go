@@ -17,6 +17,7 @@ import (
 	"github.com/dale-tomson/Tarsier/internal/auth"
 	"github.com/dale-tomson/Tarsier/internal/config"
 	"github.com/dale-tomson/Tarsier/internal/db"
+	"github.com/dale-tomson/Tarsier/internal/metrics"
 )
 
 // ServerConfig provides dependencies for the API and static server.
@@ -24,10 +25,19 @@ type ServerConfig struct {
 	Config    *config.Config
 	ConfigDB  *db.Handle
 	MetricsDB *db.Handle
+	HotCache  *metrics.HotCache
+	Rollup    *metrics.RollupEngine
+	Clock     metrics.Clock
 	Auth      *auth.Authenticator
 	Sessions  *auth.SessionStore
 	Limiter   *auth.RateLimiter
 	Version   string
+}
+
+type defaultServerClock struct{}
+
+func (defaultServerClock) Now() time.Time {
+	return time.Now().UTC()
 }
 
 // SystemHealthResponse describes system operational state and memory metrics.
@@ -60,6 +70,10 @@ type Server struct {
 	cfg          *config.Config
 	configDB     *db.Handle
 	metricsDB    *db.Handle
+	hotCache     *metrics.HotCache
+	rollup       *metrics.RollupEngine
+	clock        metrics.Clock
+	queryCache   *QueryCache
 	auth         *auth.Authenticator
 	sessions     *auth.SessionStore
 	limiter      *auth.RateLimiter
@@ -94,10 +108,21 @@ func NewServer(sc ServerConfig) (*Server, error) {
 		authHandlers = auth.NewHandlers(sc.Auth, sc.Sessions, sc.Limiter, sc.Config.Server.BaseURL)
 	}
 
+	queryCache := NewQueryCache(256, 3*time.Second)
+
+	clock := sc.Clock
+	if clock == nil {
+		clock = defaultServerClock{}
+	}
+
 	s := &Server{
 		cfg:          sc.Config,
 		configDB:     sc.ConfigDB,
 		metricsDB:    sc.MetricsDB,
+		hotCache:     sc.HotCache,
+		rollup:       sc.Rollup,
+		clock:        clock,
+		queryCache:   queryCache,
 		auth:         sc.Auth,
 		sessions:     sc.Sessions,
 		limiter:      sc.Limiter,
@@ -138,6 +163,10 @@ func (s *Server) setupRoutes() {
 
 				authGroup.Get("/system/config", s.handleSystemConfig)
 				authGroup.Get("/system/health", s.handleSystemHealth)
+
+				authGroup.Get("/host/metrics", s.handleHostMetrics)
+				authGroup.Get("/metrics/daily/summary", s.handleDailySummary)
+				authGroup.Get("/metrics/daily", s.handleDailyHistory)
 			})
 		}
 	})
