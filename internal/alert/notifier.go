@@ -307,6 +307,38 @@ func (dt *deliveryTracker) formatStatus() string {
 	return fmt.Sprintf("sent: %s; failed: %s", strings.Join(sent, ", "), strings.Join(failed, "; "))
 }
 
+// Reload dynamically reconfigures built-in notification channels from new config.
+func (d *Dispatcher) Reload(cfg config.NotifiersConfig) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.closed {
+		return
+	}
+
+	// Update Discord
+	if _, custom := d.customNotifiers["discord"]; !custom {
+		if existing, ok := d.channels["discord"]; ok {
+			existing.cancel()
+			delete(d.channels, "discord")
+		}
+		if cfg.Discord.Enabled && strings.TrimSpace(cfg.Discord.WebhookURL) != "" {
+			d.registerChannelWorker("discord", NewDiscordNotifier(cfg.Discord))
+		}
+	}
+
+	// Update Email
+	if _, custom := d.customNotifiers["email"]; !custom {
+		if existing, ok := d.channels["email"]; ok {
+			existing.cancel()
+			delete(d.channels, "email")
+		}
+		if cfg.Email.Enabled && strings.TrimSpace(cfg.Email.SMTPHost) != "" {
+			d.registerChannelWorker("email", NewSMTPNotifier(cfg.Email))
+		}
+	}
+}
+
 // Dispatch executes non-blocking fan-out of the notification across requested channels.
 func (d *Dispatcher) Dispatch(channels []string, n Notification) {
 	d.mu.RLock()

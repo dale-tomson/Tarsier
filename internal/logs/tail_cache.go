@@ -367,6 +367,17 @@ func (c *TailCache) QueryContext(sourceID int64, targetTS int64, targetSeq uint6
 	return ring.queryContextLocked(targetTS, targetSeq, before, after)
 }
 
+// SourceIDs returns a snapshot of currently registered source IDs in memory.
+func (c *TailCache) SourceIDs() []int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	ids := make([]int64, 0, len(c.rings))
+	for id := range c.rings {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // ActiveSources returns the count of currently registered source rings in memory.
 func (c *TailCache) ActiveSources() int {
 	c.mu.RLock()
