@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dale-tomson/Tarsier/internal/docker"
 )
 
 var byteRegex = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?)\s*([a-zA-Z]*)$`)
@@ -163,6 +165,12 @@ func Validate(c *Config) error {
 	}
 	if err := validatePositiveDuration("docker.stats_interval", c.Docker.StatsInterval); err != nil {
 		errs = append(errs, err.Error())
+	}
+	if err := docker.ValidatePatterns(c.Docker.Include); err != nil {
+		errs = append(errs, fmt.Sprintf("docker.include invalid: %v", err))
+	}
+	if err := docker.ValidatePatterns(c.Docker.Exclude); err != nil {
+		errs = append(errs, fmt.Sprintf("docker.exclude invalid: %v", err))
 	}
 
 	// Logs validation

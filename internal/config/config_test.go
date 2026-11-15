@@ -348,6 +348,20 @@ func TestValidateConfig(t *testing.T) {
 			},
 			expectErr: "heartbeat.url must not be empty",
 		},
+		{
+			name: "docker include invalid glob syntax",
+			modify: func(c *Config) {
+				c.Docker.Include = []string{"api-[unclosed"}
+			},
+			expectErr: "docker.include invalid",
+		},
+		{
+			name: "docker exclude invalid glob syntax",
+			modify: func(c *Config) {
+				c.Docker.Exclude = []string{"bad-[range"}
+			},
+			expectErr: "docker.exclude invalid",
+		},
 	}
 
 	for _, tc := range tests {
