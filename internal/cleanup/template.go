@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	htmltmpl "html/template"
+	"io"
 	"os"
 	texttmpl "text/template"
 	"unicode/utf8"
@@ -217,22 +218,19 @@ func FormatBytes(bytes int64) string {
 	return fmt.Sprintf("%.2f %s", float64(bytes)/float64(div), units[exp])
 }
 
+var reportFuncMap = map[string]any{
+	"formatBytes": FormatBytes,
+	"add": func(a, b int) int {
+		return a + b
+	},
+}
+
 func templateFuncMap() texttmpl.FuncMap {
-	return texttmpl.FuncMap{
-		"formatBytes": FormatBytes,
-		"add": func(a, b int) int {
-			return a + b
-		},
-	}
+	return texttmpl.FuncMap(reportFuncMap)
 }
 
 func htmlFuncMap() htmltmpl.FuncMap {
-	return htmltmpl.FuncMap{
-		"formatBytes": FormatBytes,
-		"add": func(a, b int) int {
-			return a + b
-		},
-	}
+	return htmltmpl.FuncMap(reportFuncMap)
 }
 
 // NewTemplateEngine creates an engine loading custom templates if provided, or defaults.
@@ -267,27 +265,21 @@ func NewTemplateEngine(mdPath, htmlPath string) (*TemplateEngine, error) {
 	}, nil
 }
 
-// RenderMarkdown renders the report to Markdown and enforces maxBytes cap with clean UTF-8 truncation.
-func (e *TemplateEngine) RenderMarkdown(report PreCleanupReport, maxBytes int) ([]byte, bool, error) {
-	var buf bytes.Buffer
-	if err := e.mdTemplate.Execute(&buf, report); err != nil {
-		return nil, false, err
-	}
+type templateExecutor interface {
+	Execute(wr io.Writer, data any) error
+}
 
-	raw := buf.Bytes()
+func truncateAtUTF8Boundary(raw []byte, maxBytes int, notice string) ([]byte, bool) {
 	if maxBytes <= 0 || len(raw) <= maxBytes {
-		return raw, false, nil
+		return raw, false
 	}
 
-	// Truncate cleanly at a valid UTF-8 boundary
-	notice := fmt.Sprintf("\n\n[Report truncated at %d bytes — see Tarsier UI for full details]", maxBytes)
 	noticeBytes := []byte(notice)
 	allowedLen := maxBytes - len(noticeBytes)
 	if allowedLen <= 0 {
-		return raw[:maxBytes], true, nil
+		return raw[:maxBytes], true
 	}
 
-	// Backtrack to valid UTF-8 boundary
 	for allowedLen > 0 && !utf8.RuneStart(raw[allowedLen]) {
 		allowedLen--
 	}
@@ -296,35 +288,27 @@ func (e *TemplateEngine) RenderMarkdown(report PreCleanupReport, maxBytes int) (
 	copy(truncated, raw[:allowedLen])
 	copy(truncated[allowedLen:], noticeBytes)
 
-	return truncated, true, nil
+	return truncated, true
+}
+
+func renderReport(tmpl templateExecutor, report PreCleanupReport, maxBytes int, notice string) ([]byte, bool, error) {
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, report); err != nil {
+		return nil, false, err
+	}
+
+	truncated, wasTruncated := truncateAtUTF8Boundary(buf.Bytes(), maxBytes, notice)
+	return truncated, wasTruncated, nil
+}
+
+// RenderMarkdown renders the report to Markdown and enforces maxBytes cap with clean UTF-8 truncation.
+func (e *TemplateEngine) RenderMarkdown(report PreCleanupReport, maxBytes int) ([]byte, bool, error) {
+	notice := fmt.Sprintf("\n\n[Report truncated at %d bytes — see Tarsier UI for full details]", maxBytes)
+	return renderReport(e.mdTemplate, report, maxBytes, notice)
 }
 
 // RenderHTML renders the report to HTML and enforces maxBytes cap with clean UTF-8 truncation.
 func (e *TemplateEngine) RenderHTML(report PreCleanupReport, maxBytes int) ([]byte, bool, error) {
-	var buf bytes.Buffer
-	if err := e.htmlTemplate.Execute(&buf, report); err != nil {
-		return nil, false, err
-	}
-
-	raw := buf.Bytes()
-	if maxBytes <= 0 || len(raw) <= maxBytes {
-		return raw, false, nil
-	}
-
 	notice := fmt.Sprintf("\n<!-- Report truncated at %d bytes -->\n<p><em>[Report truncated at %d bytes — see Tarsier UI for full details]</em></p></body></html>", maxBytes, maxBytes)
-	noticeBytes := []byte(notice)
-	allowedLen := maxBytes - len(noticeBytes)
-	if allowedLen <= 0 {
-		return raw[:maxBytes], true, nil
-	}
-
-	for allowedLen > 0 && !utf8.RuneStart(raw[allowedLen]) {
-		allowedLen--
-	}
-
-	truncated := make([]byte, allowedLen+len(noticeBytes))
-	copy(truncated, raw[:allowedLen])
-	copy(truncated[allowedLen:], noticeBytes)
-
-	return truncated, true, nil
+	return renderReport(e.htmlTemplate, report, maxBytes, notice)
 }

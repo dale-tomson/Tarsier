@@ -66,7 +66,7 @@ func setupMetricsTestServer(t *testing.T, clock *mockClock) (*Server, *db.Store,
 	}
 
 	hotCache := metrics.NewHotCache(100, 180)
-	var rollupClock metrics.Clock
+	var rollupClock model.Clock
 	if clock != nil {
 		rollupClock = clock
 	}

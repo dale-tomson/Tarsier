@@ -36,24 +36,6 @@ var readBufPool = sync.Pool{
 	},
 }
 
-// LogSink defines an interface for receiving ingested log entries.
-type LogSink interface {
-	PushLog(entry model.LogEntry) bool
-}
-
-// LogChanSink adapts a chan<- model.LogEntry channel into a LogSink.
-type LogChanSink chan<- model.LogEntry
-
-// PushLog pushes a log entry without blocking; returns false if channel is full.
-func (s LogChanSink) PushLog(entry model.LogEntry) bool {
-	select {
-	case s <- entry:
-		return true
-	default:
-		return false
-	}
-}
-
 // getInode extracts the underlying filesystem inode from os.FileInfo on Unix systems.
 func getInode(info os.FileInfo) uint64 {
 	if info == nil {
@@ -145,7 +127,7 @@ func SaveFileSourceOffset(ctx context.Context, configDB *db.Handle, sourceID int
 type FileTailerConfig struct {
 	Files          []config.LogFileConfig
 	ConfigDB       *db.Handle
-	Sink           LogSink
+	Sink           model.LogSink
 	PollInterval   time.Duration // default 500ms
 	RescanInterval time.Duration // default 30s
 	FlushInterval  time.Duration // default 3s
@@ -176,7 +158,7 @@ type fileTailer struct {
 type FileTailerManager struct {
 	files          []config.LogFileConfig
 	configDB       *db.Handle
-	sink           LogSink
+	sink           model.LogSink
 	pollInterval   time.Duration
 	rescanInterval time.Duration
 	flushInterval  time.Duration

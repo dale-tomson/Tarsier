@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dale-tomson/Tarsier/internal/db"
+	"github.com/dale-tomson/Tarsier/internal/model"
 )
 
 // AlertState defines the lifecycle state of a rule target.
@@ -58,15 +59,15 @@ type StateMachine struct {
 	ruleStore  *RuleStore
 	dbHandle   *db.Handle
 	dispatcher NotificationDispatcher
-	clock      Clock
+	clock      model.Clock
 	mu         sync.RWMutex
 	states     map[StateKey]*RuleTargetState
 }
 
 // NewStateMachine creates a new Alert State Machine.
-func NewStateMachine(cache *RuleCache, store *RuleStore, dbHandle *db.Handle, disp NotificationDispatcher, clock Clock) *StateMachine {
+func NewStateMachine(cache *RuleCache, store *RuleStore, dbHandle *db.Handle, disp NotificationDispatcher, clock model.Clock) *StateMachine {
 	if clock == nil {
-		clock = SystemClock{}
+		clock = model.SystemClock{}
 	}
 	sm := &StateMachine{
 		ruleCache:  cache,

@@ -8,18 +8,8 @@ import (
 	"time"
 
 	"github.com/dale-tomson/Tarsier/internal/db"
+	"github.com/dale-tomson/Tarsier/internal/model"
 )
-
-// Clock provides an interface for time abstraction to allow deterministic testing.
-type Clock interface {
-	Now() time.Time
-}
-
-type realClock struct{}
-
-func (realClock) Now() time.Time {
-	return time.Now().UTC()
-}
 
 // DailyStat represents computed aggregate stats for a series over a single day.
 type DailyStat struct {
@@ -35,7 +25,7 @@ type DailyStat struct {
 // RollupEngine coordinates periodic SQL downsampling from sample_raw -> sample_1m -> sample_5m -> sample_1d.
 type RollupEngine struct {
 	handle *db.Handle
-	clock  Clock
+	clock  model.Clock
 
 	mu           sync.Mutex
 	last1mBucket int64
@@ -45,9 +35,9 @@ type RollupEngine struct {
 }
 
 // NewRollupEngine constructs a RollupEngine backed by the metrics database handle.
-func NewRollupEngine(handle *db.Handle, clock Clock) *RollupEngine {
+func NewRollupEngine(handle *db.Handle, clock model.Clock) *RollupEngine {
 	if clock == nil {
-		clock = realClock{}
+		clock = model.SystemClock{}
 	}
 	return &RollupEngine{
 		handle: handle,

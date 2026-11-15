@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dale-tomson/Tarsier/internal/docker"
+	"github.com/dale-tomson/Tarsier/internal/model"
 )
 
 type containerWindowKey struct {
@@ -26,15 +27,15 @@ type containerWindowState struct {
 type ContainerEvaluator struct {
 	cache   *RuleCache
 	sink    ObservationSink
-	clock   Clock
+	clock   model.Clock
 	mu      sync.Mutex
 	windows map[containerWindowKey]*containerWindowState
 }
 
 // NewContainerEvaluator creates a new ContainerEvaluator.
-func NewContainerEvaluator(cache *RuleCache, sink ObservationSink, clock Clock) *ContainerEvaluator {
+func NewContainerEvaluator(cache *RuleCache, sink ObservationSink, clock model.Clock) *ContainerEvaluator {
 	if clock == nil {
-		clock = SystemClock{}
+		clock = model.SystemClock{}
 	}
 	return &ContainerEvaluator{
 		cache:   cache,
