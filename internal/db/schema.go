@@ -46,14 +46,16 @@ var ConfigSchemaDDL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_container_event_ts ON container_event(container_id, ts DESC);`,
 
 	`CREATE TABLE IF NOT EXISTS alert_rule (
-		id INTEGER PRIMARY KEY,
-		name TEXT NOT NULL,
-		type TEXT NOT NULL,
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		kind TEXT NOT NULL,
 		enabled INTEGER NOT NULL DEFAULT 1,
 		severity TEXT NOT NULL,
-		spec_json TEXT NOT NULL,
-		channels TEXT NOT NULL,
-		cooldown_s INTEGER NOT NULL DEFAULT 300,
+		target TEXT NOT NULL,
+		condition_json TEXT NOT NULL,
+		for_sec INTEGER NOT NULL DEFAULT 0,
+		cooldown_sec INTEGER NOT NULL DEFAULT 300,
+		channels_json TEXT NOT NULL,
 		notify_recovery INTEGER NOT NULL DEFAULT 1,
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL
@@ -66,13 +68,18 @@ var ConfigSchemaDDL = []string{
 		since INTEGER NOT NULL,
 		last_fired INTEGER NOT NULL DEFAULT 0,
 		last_notified INTEGER NOT NULL DEFAULT 0,
+		notified_sev TEXT NOT NULL DEFAULT '',
+		active_event_id INTEGER NOT NULL DEFAULT 0,
 		value REAL NOT NULL DEFAULT 0,
+		summary TEXT NOT NULL DEFAULT '',
+		details_json TEXT NOT NULL DEFAULT '{}',
 		PRIMARY KEY(rule_id, target)
 	) WITHOUT ROWID;`,
 
 	`CREATE TABLE IF NOT EXISTS alert_event (
-		id INTEGER PRIMARY KEY,
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		rule_id INTEGER NOT NULL,
+		rule_name TEXT NOT NULL,
 		target TEXT NOT NULL,
 		severity TEXT NOT NULL,
 		state TEXT NOT NULL,
@@ -80,10 +87,12 @@ var ConfigSchemaDDL = []string{
 		resolved INTEGER NOT NULL DEFAULT 0,
 		summary TEXT NOT NULL,
 		details_json TEXT NOT NULL DEFAULT '{}',
-		notify_status TEXT NOT NULL DEFAULT 'pending'
+		notify_status TEXT NOT NULL DEFAULT 'pending',
+		created_at INTEGER NOT NULL
 	);`,
 
 	`CREATE INDEX IF NOT EXISTS idx_alert_event_started ON alert_event(started DESC);`,
+	`CREATE INDEX IF NOT EXISTS idx_alert_event_created ON alert_event(created_at DESC);`,
 
 	`CREATE TABLE IF NOT EXISTS cleanup_history (
 		id INTEGER PRIMARY KEY,
