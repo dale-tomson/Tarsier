@@ -97,7 +97,9 @@ try {
 const data = await this.apiFetch('/api/v1/auth/me');
 this.authenticated = true;
 this.user = data.username || 'admin';
-if (this.route === 'settings') {
+if (this.route === 'overview') {
+this.onOverviewMounted();
+} else if (this.route === 'settings') {
 this.loadSettings();
 }
 } catch (e) {
@@ -133,7 +135,9 @@ this.user = data.username || this.loginForm.username;
 this.loginForm.password = '';
 this.loginForm.error = '';
 this.toast.show('Logged in successfully', 'success');
-if (this.route === 'settings') {
+if (this.route === 'overview') {
+this.onOverviewMounted();
+} else if (this.route === 'settings') {
 this.loadSettings();
 }
 } catch (err) {
@@ -164,6 +168,31 @@ if (window.settingsView && window.settingsView.mounted) {
 window.settingsView.mounted();
 }
 } catch (e) {
+}
+},
+async loadHealth() {
+try {
+this.systemHealth = await this.apiFetch('/api/v1/system/health');
+} catch (e) {
+}
+},
+onOverviewMounted() {
+if (!this.authenticated) return;
+if (window.hostView && window.hostView.refresh) {
+window.hostView.refresh();
+window.hostView.startRefreshTimer();
+}
+if (window.containersView && window.containersView.refresh) {
+window.containersView.refresh();
+}
+if (window.alertsView && window.alertsView.fetchActive) {
+window.alertsView.fetchActive();
+}
+this.loadHealth();
+},
+onOverviewUnmounted() {
+if (window.hostView && window.hostView.stopRefreshTimer) {
+window.hostView.stopRefreshTimer();
 }
 }
 });
@@ -227,7 +256,7 @@ if (store.route === 'logs') {
 logsView.pollLatest();
 }
 if (store.route === 'alerts' || store.route === 'overview') {
-alertsView.fetchActiveAlerts();
+alertsView.fetchActive();
 }
 }
 });
