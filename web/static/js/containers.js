@@ -65,7 +65,7 @@ delete detailCharts[key];
 }
 });
 }
-return {
+const ctrl = {
 containers: [],
 activeTab: 'running',
 get runningContainers() {
@@ -86,10 +86,7 @@ this.refresh();
 this.startRefreshTimer();
 },
 unmounted() {
-if (refreshTimer) {
-clearInterval(refreshTimer);
-refreshTimer = null;
-}
+this.stopRefreshTimer();
 destroyDetailCharts();
 },
 startRefreshTimer() {
@@ -102,6 +99,12 @@ if (appStore.route === 'containers' || appStore.route === 'overview') {
 this.refresh();
 }
 }, ms);
+}
+},
+stopRefreshTimer() {
+if (refreshTimer) {
+clearInterval(refreshTimer);
+refreshTimer = null;
 }
 },
 async refresh() {
@@ -268,6 +271,7 @@ formatBytes,
 formatBps,
 formatUptime
 };
+return window.PetiteVue ? window.PetiteVue.reactive(ctrl) : ctrl;
 }
 window.ContainersController = ContainersController;
 })();

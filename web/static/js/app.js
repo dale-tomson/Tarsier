@@ -47,8 +47,14 @@ window.containersView.renderDetailCharts(window.containersView.detailData.contai
 }
 },
 onRefreshIntervalChange() {
-if (window.hostView) {
+if (window.hostView && window.hostView.startRefreshTimer) {
 window.hostView.startRefreshTimer();
+}
+if (window.containersView && window.containersView.startRefreshTimer) {
+window.containersView.startRefreshTimer();
+}
+if (window.alertsView && window.alertsView.startTimer) {
+window.alertsView.startTimer();
 }
 },
 dailySummary: null,
@@ -178,21 +184,26 @@ this.systemHealth = await this.apiFetch('/api/v1/system/health');
 },
 onOverviewMounted() {
 if (!this.authenticated) return;
-if (window.hostView && window.hostView.refresh) {
-window.hostView.refresh();
-window.hostView.startRefreshTimer();
+if (window.hostView) {
+if (window.hostView.refresh) window.hostView.refresh();
+if (window.hostView.startRefreshTimer) window.hostView.startRefreshTimer();
 }
-if (window.containersView && window.containersView.refresh) {
-window.containersView.refresh();
+if (window.containersView) {
+if (window.containersView.refresh) window.containersView.refresh();
+if (window.containersView.startRefreshTimer) window.containersView.startRefreshTimer();
 }
-if (window.alertsView && window.alertsView.fetchActive) {
-window.alertsView.fetchActive();
+if (window.alertsView) {
+if (window.alertsView.fetchActive) window.alertsView.fetchActive();
+if (window.alertsView.startTimer) window.alertsView.startTimer();
 }
 this.loadHealth();
 },
 onOverviewUnmounted() {
 if (window.hostView && window.hostView.stopRefreshTimer) {
 window.hostView.stopRefreshTimer();
+}
+if (window.containersView && window.containersView.stopRefreshTimer) {
+window.containersView.stopRefreshTimer();
 }
 }
 });
@@ -225,15 +236,15 @@ if (store.theme === 'auto') applyTheme('auto');
 });
 }
 window.store = store;
-const hostView = window.HostController ? window.HostController(store) : {};
+const hostView = window.PetiteVue.reactive(window.HostController ? window.HostController(store) : {});
 window.hostView = hostView;
-const containersView = window.ContainersController ? window.ContainersController(store) : {};
+const containersView = window.PetiteVue.reactive(window.ContainersController ? window.ContainersController(store) : {});
 window.containersView = containersView;
-const logsView = window.LogsController ? window.LogsController(store) : {};
+const logsView = window.PetiteVue.reactive(window.LogsController ? window.LogsController(store) : {});
 window.logsView = logsView;
-const alertsView = window.AlertsController ? window.AlertsController(store) : {};
+const alertsView = window.PetiteVue.reactive(window.AlertsController ? window.AlertsController(store) : {});
 window.alertsView = alertsView;
-const settingsView = window.SettingsController ? window.SettingsController(store) : {};
+const settingsView = window.PetiteVue.reactive(window.SettingsController ? window.SettingsController(store) : {});
 window.settingsView = settingsView;
 window.PetiteVue.createApp({
 store,
