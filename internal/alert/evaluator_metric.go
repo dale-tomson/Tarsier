@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dale-tomson/Tarsier/internal/metrics"
+	"github.com/dale-tomson/Tarsier/internal/model"
 )
 
 // EvalObservation represents a point-in-time evaluation signal passed to the Alert State Machine.
@@ -27,18 +28,6 @@ type ObservationSink interface {
 	Observe(ctx context.Context, obs EvalObservation)
 }
 
-// Clock abstracts system time for deterministic unit testing.
-type Clock interface {
-	Now() time.Time
-}
-
-// SystemClock implements Clock using the standard system time in UTC.
-type SystemClock struct{}
-
-func (SystemClock) Now() time.Time {
-	return time.Now().UTC()
-}
-
 type metricTargetKey struct {
 	ruleID int64
 	target string
@@ -49,15 +38,15 @@ type MetricEvaluator struct {
 	cache       *RuleCache
 	hotCache    *metrics.HotCache
 	sink        ObservationSink
-	clock       Clock
+	clock       model.Clock
 	mu          sync.Mutex
 	activeBreach map[metricTargetKey]bool // tracks rules/targets currently in breached state
 }
 
 // NewMetricEvaluator initializes a MetricEvaluator.
-func NewMetricEvaluator(cache *RuleCache, hot *metrics.HotCache, sink ObservationSink, clock Clock) *MetricEvaluator {
+func NewMetricEvaluator(cache *RuleCache, hot *metrics.HotCache, sink ObservationSink, clock model.Clock) *MetricEvaluator {
 	if clock == nil {
-		clock = SystemClock{}
+		clock = model.SystemClock{}
 	}
 	return &MetricEvaluator{
 		cache:        cache,

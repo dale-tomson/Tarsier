@@ -39,7 +39,7 @@ type LogEvaluator struct {
 	cache    *RuleCache
 	resolver SourceResolver
 	sink     ObservationSink
-	clock    Clock
+	clock    model.Clock
 	tapChan  chan model.LogEntry
 	dropped  atomic.Uint64
 	mu       sync.Mutex
@@ -47,9 +47,9 @@ type LogEvaluator struct {
 }
 
 // NewLogEvaluator initializes a new LogEvaluator with a bounded 2048-capacity tap queue.
-func NewLogEvaluator(cache *RuleCache, resolver SourceResolver, sink ObservationSink, clock Clock) *LogEvaluator {
+func NewLogEvaluator(cache *RuleCache, resolver SourceResolver, sink ObservationSink, clock model.Clock) *LogEvaluator {
 	if clock == nil {
-		clock = SystemClock{}
+		clock = model.SystemClock{}
 	}
 	return &LogEvaluator{
 		cache:    cache,

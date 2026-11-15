@@ -21,6 +21,7 @@ import (
 	"github.com/dale-tomson/Tarsier/internal/db"
 	"github.com/dale-tomson/Tarsier/internal/logs"
 	"github.com/dale-tomson/Tarsier/internal/metrics"
+	"github.com/dale-tomson/Tarsier/internal/model"
 )
 
 // ServerConfig provides dependencies for the API and static server.
@@ -32,7 +33,7 @@ type ServerConfig struct {
 	Rollup          *metrics.RollupEngine
 	LogEngine       *logs.LogQueryEngine
 	TailCache       *logs.TailCache
-	Clock           metrics.Clock
+	Clock           model.Clock
 	Auth            *auth.Authenticator
 	Sessions        *auth.SessionStore
 	Limiter         *auth.RateLimiter
@@ -93,7 +94,7 @@ type Server struct {
 	rollup              *metrics.RollupEngine
 	logEngine           *logs.LogQueryEngine
 	tailCache           *logs.TailCache
-	clock               metrics.Clock
+	clock               model.Clock
 	queryCache          *QueryCache
 	auth                *auth.Authenticator
 	sessions            *auth.SessionStore
