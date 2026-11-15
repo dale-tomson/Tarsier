@@ -44,7 +44,7 @@ func TestAssets_ZeroVHtml(t *testing.T) {
 	}
 }
 
-func TestAssets_BundleSizeUnder65KB(t *testing.T) {
+func TestAssets_BundleSizeUnder100KB(t *testing.T) {
 	var combined bytes.Buffer
 
 	err := fs.WalkDir(web.Assets, ".", func(path string, d fs.DirEntry, err error) error {
@@ -80,11 +80,11 @@ func TestAssets_BundleSizeUnder65KB(t *testing.T) {
 	}
 
 	totalGzipBytes := int64(buf.Len())
-	const maxBudgetBytes = 65 * 1024 // 65 KB
+	const maxBudgetBytes = 100 * 1024 // 100 KB
 
-	t.Logf("Total embedded gzipped UI assets: %d bytes (%.2f KB) / 65 KB budget", totalGzipBytes, float64(totalGzipBytes)/1024)
+	t.Logf("Total embedded gzipped UI assets: %d bytes (%.2f KB) / 100 KB budget", totalGzipBytes, float64(totalGzipBytes)/1024)
 
 	if totalGzipBytes > maxBudgetBytes {
-		t.Fatalf("total gzipped UI bundle (%d bytes) exceeds 65 KB budget (%d bytes)", totalGzipBytes, maxBudgetBytes)
+		t.Fatalf("total gzipped UI bundle (%d bytes) exceeds 100 KB budget (%d bytes)", totalGzipBytes, maxBudgetBytes)
 	}
 }

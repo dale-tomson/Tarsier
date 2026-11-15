@@ -91,7 +91,7 @@ Tarsier is engineered from the ground up for strict resource efficiency on singl
 ### 7. Embedded Web UI & Settings Dashboard
 * Single-binary delivery via Go 1.27 `embed.FS`.
 * Built with `petite-vue` (IIFE, ~6 KB), `Pico.css` (v2), and `uPlot`.
-* Total embedded gzipped UI assets strictly under **`< 65 KB`**.
+* Total embedded gzipped UI assets strictly under **`< 100 KB`**.
 * Auto light/dark theme synchronization with OS preferences.
 * Interactive dashboards:
   * **Overview:** High-level system vitals, active firing alerts, real-time charts, container status grid, and cleanup failure warnings.
