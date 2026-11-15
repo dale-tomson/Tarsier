@@ -37,6 +37,15 @@ func (h *Handle) ExecWrite(ctx context.Context, fn WriteFunc) error {
 	return h.Writer.ExecSync(ctx, fn)
 }
 
+// ExecRawWrite executes a raw write operation directly on the single-writer connection
+// outside an explicit transaction, serialized through the single-writer queue.
+func (h *Handle) ExecRawWrite(ctx context.Context, fn RawWriteFunc) error {
+	if h.Writer == nil {
+		return errors.New("writer not initialized")
+	}
+	return h.Writer.ExecRawSync(ctx, fn)
+}
+
 // QueryRO returns the isolated read-only connection pool.
 func (h *Handle) QueryRO() *sql.DB {
 	return h.RO
