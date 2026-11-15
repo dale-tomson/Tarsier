@@ -46,30 +46,33 @@ func TestEnums(t *testing.T) {
 	if LevelSourceStructured.String() != "structured" {
 		t.Errorf("unexpected LevelSource string: %s", LevelSourceStructured)
 	}
+	if LevelSourceDelimited.String() != "delimited" {
+		t.Errorf("unexpected LevelSource string: %s", LevelSourceDelimited)
+	}
 	if LevelSourceKeyword.String() != "keyword" {
 		t.Errorf("unexpected LevelSource string: %s", LevelSourceKeyword)
 	}
 	if LevelSourceHint.String() != "hint" {
 		t.Errorf("unexpected LevelSource string: %s", LevelSourceHint)
 	}
-	if LevelSourceDefault.String() != "default" {
-		t.Errorf("unexpected LevelSource string: %s", LevelSourceDefault)
+	if LevelSourceInherited.String() != "inherited" {
+		t.Errorf("unexpected LevelSource string: %s", LevelSourceInherited)
 	}
-	if LevelSourceUnknown.String() != "unknown" {
-		t.Errorf("unexpected LevelSource string: %s", LevelSourceUnknown)
+	if LevelSourceNone.String() != "none" {
+		t.Errorf("unexpected LevelSource string: %s", LevelSourceNone)
 	}
 
-	if TimestampSourceHeader.String() != "header" {
-		t.Errorf("unexpected TimestampSource string: %s", TimestampSourceHeader)
+	if TimestampSourceLine.String() != "line" {
+		t.Errorf("unexpected TimestampSource string: %s", TimestampSourceLine)
 	}
-	if TimestampSourceParsed.String() != "parsed" {
-		t.Errorf("unexpected TimestampSource string: %s", TimestampSourceParsed)
+	if TimestampSourceCarried.String() != "carried" {
+		t.Errorf("unexpected TimestampSource string: %s", TimestampSourceCarried)
 	}
-	if TimestampSourceIngest.String() != "ingest" {
-		t.Errorf("unexpected TimestampSource string: %s", TimestampSourceIngest)
+	if TimestampSourceDocker.String() != "docker" {
+		t.Errorf("unexpected TimestampSource string: %s", TimestampSourceDocker)
 	}
-	if TimestampSourceUnknown.String() != "unknown" {
-		t.Errorf("unexpected TimestampSource string: %s", TimestampSourceUnknown)
+	if TimestampSourceReadTime.String() != "read_time" {
+		t.Errorf("unexpected TimestampSource string: %s", TimestampSourceReadTime)
 	}
 
 	if StreamStdout.String() != "stdout" {
