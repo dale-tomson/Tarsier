@@ -23,8 +23,6 @@ services:
       # Fallback defaults if not set in .env
       TARSIER_CONFIG: ${TARSIER_CONFIG:-/config/tarsier.yaml}
       TARSIER_ADMIN_USER: ${TARSIER_ADMIN_USER:-admin}
-      TARSIER_ADMIN_PASSWORD_HASH: ${TARSIER_ADMIN_PASSWORD_HASH:-$$2a$$10$$vI8aWBnW3fID.ZQ4/zo1G.q1lRps.9cGLcZEiGDMVr5yUP1KUOYTa}
-      TARSIER_SESSION_SECRET: ${TARSIER_SESSION_SECRET:-local-dev-session-secret-must-be-at-least-32-bytes-long}
       GOMEMLIMIT: ${GOMEMLIMIT:-200MiB}
       HOST_PROC: ${HOST_PROC:-/proc}
       HOST_SYS: ${HOST_SYS:-/sys}
