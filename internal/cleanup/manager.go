@@ -23,7 +23,7 @@ var (
 
 // PostCleanupMaintainer executes database compaction and WAL truncation after prunes.
 type PostCleanupMaintainer interface {
-	MaintainAll(ctx context.Context) error
+	MaintainAll(ctx context.Context) (MaintenanceSummary, error)
 }
 
 // CleanupRunResult captures the outcome and audit summary of a cleanup or dry-run.
@@ -276,7 +276,7 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 
 	// 6. Post-Cleanup Database Maintenance
 	if m.maintainer != nil {
-		_ = m.maintainer.MaintainAll(ctx)
+		_, _ = m.maintainer.MaintainAll(ctx)
 	}
 
 	// 7. Record completed run

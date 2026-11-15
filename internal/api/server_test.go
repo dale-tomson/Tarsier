@@ -141,6 +141,7 @@ func TestStaticAssets_ServedAndCompressed(t *testing.T) {
 		{"/static/js/charts.js", "application/javascript; charset=utf-8", false},
 		{"/static/js/host.js", "application/javascript; charset=utf-8", false},
 		{"/static/js/containers.js", "application/javascript; charset=utf-8", false},
+		{"/static/js/settings.js", "application/javascript; charset=utf-8", false},
 		{"/static/css/app.css", "text/css; charset=utf-8", false},
 	}
 
@@ -555,7 +556,7 @@ func TestSPAFallback(t *testing.T) {
 
 func TestFrontendBundle_SizeBudgetUnder65KB(t *testing.T) {
 	// Walk web.Assets and calculate total compressed gzip size of all embedded frontend files
-	var totalGzipBytes int64
+	var combined bytes.Buffer
 
 	err := fs.WalkDir(web.Assets, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -570,25 +571,26 @@ func TestFrontendBundle_SizeBudgetUnder65KB(t *testing.T) {
 			return err
 		}
 
-		var buf bytes.Buffer
-		gw, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
-		if err != nil {
-			return err
-		}
-		if _, err := gw.Write(raw); err != nil {
-			return err
-		}
-		if err := gw.Close(); err != nil {
-			return err
-		}
-
-		totalGzipBytes += int64(buf.Len())
+		combined.Write(raw)
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("walk assets failed: %v", err)
 	}
 
+	var buf bytes.Buffer
+	gw, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	if err != nil {
+		t.Fatalf("gzip writer failed: %v", err)
+	}
+	if _, err := gw.Write(combined.Bytes()); err != nil {
+		t.Fatalf("gzip write failed: %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("gzip close failed: %v", err)
+	}
+
+	totalGzipBytes := int64(buf.Len())
 	const maxBudgetBytes = 65 * 1024 // 65 KB
 	t.Logf("Total embedded gzipped UI assets: %d bytes (%.2f KB) / 65 KB budget", totalGzipBytes, float64(totalGzipBytes)/1024)
 

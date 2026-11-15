@@ -160,6 +160,9 @@ this.apiFetch('/api/v1/system/health')
 ]);
 this.systemConfig = cfg;
 this.systemHealth = health;
+if (window.settingsView && window.settingsView.mounted) {
+window.settingsView.mounted();
+}
 } catch (e) {
 }
 }
@@ -169,6 +172,9 @@ store.route = getRouteFromHash();
 if (store.authenticated) {
 if (store.route === 'settings') {
 store.loadSettings();
+if (window.settingsView && window.settingsView.mounted) {
+window.settingsView.mounted();
+}
 } else if (store.route === 'containers' || store.route === 'overview') {
 if (window.containersView && window.containersView.refresh) {
 window.containersView.refresh();
@@ -198,12 +204,15 @@ const logsView = window.LogsController ? window.LogsController(store) : {};
 window.logsView = logsView;
 const alertsView = window.AlertsController ? window.AlertsController(store) : {};
 window.alertsView = alertsView;
+const settingsView = window.SettingsController ? window.SettingsController(store) : {};
+window.settingsView = settingsView;
 window.PetiteVue.createApp({
 store,
 hostView,
 containersView,
 logsView,
 alertsView,
+settingsView,
 overviewChart: window.ChartPanel ? window.ChartPanel('overview-chart') : {}
 }).mount();
 document.addEventListener('visibilitychange', () => {

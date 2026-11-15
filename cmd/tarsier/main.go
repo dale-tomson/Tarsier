@@ -17,6 +17,7 @@ import (
 	"github.com/dale-tomson/Tarsier/internal/alert"
 	"github.com/dale-tomson/Tarsier/internal/api"
 	"github.com/dale-tomson/Tarsier/internal/auth"
+	"github.com/dale-tomson/Tarsier/internal/cleanup"
 	"github.com/dale-tomson/Tarsier/internal/collector/host"
 	"github.com/dale-tomson/Tarsier/internal/config"
 	"github.com/dale-tomson/Tarsier/internal/db"
@@ -288,6 +289,42 @@ func main() {
 		log.Fatalf("Fatal: failed to initialize log query engine: %v", err)
 	}
 
+	// Initialize Cleanup & Retention subsystem
+	var cleanupSenders []cleanup.ReportSender
+	if cfg.Notifiers.Discord.WebhookURL != "" {
+		cleanupSenders = append(cleanupSenders, cleanup.NewDiscordReportSender(cfg.Notifiers.Discord, nil))
+	}
+	if cfg.Notifiers.Email.SMTPHost != "" {
+		cleanupSenders = append(cleanupSenders, cleanup.NewSMTPReportSender(cfg.Notifiers.Email))
+	}
+	deliverer := cleanup.NewReportDeliverer(cfg.Cleanup.Report, cleanupSenders)
+	maintainer := cleanup.NewDatabaseMaintainer(cleanup.DatabaseMaintainerConfig{
+		Store: store,
+	})
+	tmplEngine, _ := cleanup.NewTemplateEngine(cfg.Cleanup.Report.Template, "")
+	reportBuilder, err := cleanup.NewReportBuilder(cleanup.ReportBuilderConfig{
+		DataDir:   cfg.Storage.Path,
+		MetricsRO: store.Metrics.RO,
+		ConfigRO:  store.Config.RO,
+	})
+	if err != nil {
+		log.Printf("Warning: failed to initialize cleanup report builder: %v", err)
+	}
+	cleanupMgr, err := cleanup.NewCleanupManager(cleanup.CleanupManagerConfig{
+		Config:         cfg,
+		Store:          store,
+		ReportBuilder:  reportBuilder,
+		TemplateEngine: tmplEngine,
+		Deliverer:      deliverer,
+		Maintainer:     maintainer,
+	})
+	if err != nil {
+		log.Printf("Warning: failed to initialize cleanup manager: %v", err)
+	} else {
+		cleanupMgr.Start(ctx)
+		defer cleanupMgr.Stop()
+	}
+
 	// Initialize HTTP API and static asset server
 	server, err := api.NewServer(api.ServerConfig{
 		Config:          cfg,
@@ -306,6 +343,11 @@ func main() {
 		StateMachine:    stateMachine,
 		Dispatcher:      dispatcher,
 		Heartbeat:       heartbeatWorker,
+		CleanupManager:  cleanupMgr,
+		ReportBuilder:   reportBuilder,
+		Deliverer:       deliverer,
+		Maintainer:      maintainer,
+		ConfigPath:      configPath,
 		Version:         Version,
 	})
 	if err != nil {
