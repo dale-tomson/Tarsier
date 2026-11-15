@@ -218,3 +218,48 @@ dialog.login-dialog article {
   max-width: 420px;
   margin: 0 auto;
 }
+
+/* Host Charts 2-Column Responsive Grid */
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+  margin-top: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 900px) {
+  .charts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chart-card {
+  margin-bottom: 0;
+  padding: 1rem;
+}
+
+.chart-card header {
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+.chart-card h4 {
+  font-size: 1rem;
+  margin-bottom: 0;
+}
+
+/* Stat Badges in Cards */
+.stat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  background-color: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  font-weight: 500;
+  margin-left: 0.5rem;
+}

@@ -11,6 +11,8 @@
   <script src="/static/vendor/petite-vue.iife.js"></script>
   <script src="/static/vendor/uPlot.iife.min.js"></script>
   <script src="/static/js/components.js"></script>
+  <script src="/static/js/charts.js"></script>
+  <script src="/static/js/host.js"></script>
 </head>
 <body v-scope>
   <!-- Global Toast Notification Banner -->
@@ -62,7 +64,7 @@
       </ul>
       <ul class="nav-controls">
         <li>
-          <select v-model="store.timeRange" aria-label="Time range">
+          <select v-model="store.timeRange" @change="store.onTimeRangeChange()" aria-label="Time range">
             <option value="1h">1h</option>
             <option value="6h">6h</option>
             <option value="24h">24h</option>
@@ -71,7 +73,7 @@
           </select>
         </li>
         <li>
-          <select v-model="store.refreshInterval" aria-label="Auto-refresh interval">
+          <select v-model="store.refreshInterval" @change="store.onRefreshIntervalChange()" aria-label="Auto-refresh interval">
             <option value="0">Off</option>
             <option value="5s">5s</option>
             <option value="10s">10s</option>
@@ -99,23 +101,23 @@
         <div class="metric-grid">
           <article class="metric-card">
             <div class="metric-title">Host CPU</div>
-            <div class="metric-value">14.2%</div>
-            <div class="metric-sub">4 Cores &bull; 0.5 Load</div>
+            <div class="metric-value">{{ store.dailySummary ? store.dailySummary.host.cpu.avg_pct.toFixed(1) + '%' : '--' }}</div>
+            <div class="metric-sub">{{ store.dailySummary ? 'Today avg: ' + store.dailySummary.host.cpu.avg_pct.toFixed(1) + '% (pk ' + store.dailySummary.host.cpu.peak_pct.toFixed(1) + '%)' : 'Collecting telemetry...' }}</div>
           </article>
           <article class="metric-card">
             <div class="metric-title">Host Memory</div>
-            <div class="metric-value">42.9%</div>
-            <div class="metric-sub">3.4 GB / 8.0 GB</div>
+            <div class="metric-value">{{ store.dailySummary && store.dailySummary.host.ram.total_bytes > 0 ? ((store.dailySummary.host.ram.avg_bytes / store.dailySummary.host.ram.total_bytes) * 100).toFixed(1) + '%' : '--' }}</div>
+            <div class="metric-sub">{{ store.dailySummary ? (store.dailySummary.host.ram.avg_bytes / 1073741824).toFixed(1) + ' GB / ' + (store.dailySummary.host.ram.total_bytes / 1073741824).toFixed(1) + ' GB' : 'Collecting telemetry...' }}</div>
           </article>
           <article class="metric-card">
             <div class="metric-title">Containers</div>
-            <div class="metric-value">8 <small style="font-size: 1rem; color: #16a34a;">Running</small></div>
-            <div class="metric-sub">0 Stopped &bull; 0 Warning</div>
+            <div class="metric-value">{{ store.dailySummary ? store.dailySummary.containers.length : '--' }} <small style="font-size: 1rem; color: #16a34a;">Tracked</small></div>
+            <div class="metric-sub">Auto-discovery online</div>
           </article>
           <article class="metric-card">
-            <div class="metric-title">Log Ingestion</div>
-            <div class="metric-value">124 <small style="font-size: 1rem;">lines/s</small></div>
-            <div class="metric-sub">64 KB block compression</div>
+            <div class="metric-title">Telemetry Storage</div>
+            <div class="metric-value">Active</div>
+            <div class="metric-sub">SQLite single-writer engine</div>
           </article>
         </div>
 
@@ -128,39 +130,75 @@
       </section>
 
       <!-- 2. HOST VIEW -->
-      <section v-if="store.route === 'host'">
+      <section v-if="store.route === 'host'" @vue:mounted="hostView.mounted()" @vue:unmounted="hostView.unmounted()">
         <h2>Host Metrics</h2>
         <div class="metric-grid">
           <article class="metric-card">
             <div class="metric-title">CPU Usage</div>
-            <div class="metric-value">14.2%</div>
-            <div class="metric-sub">User: 9.8% &bull; System: 4.4%</div>
+            <div class="metric-value" v-text="hostView.current.cpuPct"></div>
+            <div class="metric-sub">Today: <span v-text="hostView.summary.cpu.avg_pct.toFixed(1) + '% avg (pk ' + hostView.summary.cpu.peak_pct.toFixed(1) + '%)'"></span></div>
           </article>
           <article class="metric-card">
-            <div class="metric-title">Memory Available</div>
-            <div class="metric-value">4.6 GB</div>
-            <div class="metric-sub">Total: 8.0 GB &bull; Swap: 0%</div>
+            <div class="metric-title">Memory Used / Total</div>
+            <div class="metric-value"><span v-text="hostView.current.memUsed"></span> / <span v-text="hostView.formatBytes(hostView.summary.ram.total_bytes)"></span></div>
+            <div class="metric-sub">Today: <span v-text="hostView.formatBytes(hostView.summary.ram.avg_bytes) + ' avg (pk ' + hostView.formatBytes(hostView.summary.ram.peak_bytes) + ')'"></span></div>
           </article>
           <article class="metric-card">
-            <div class="metric-title">Root Disk (/)</div>
-            <div class="metric-value">38%</div>
-            <div class="metric-sub">42.1 GB used / 110 GB free</div>
+            <div class="metric-title">System Load (1m / 5m / 15m)</div>
+            <div class="metric-value" v-text="hostView.current.load1 + ' / ' + hostView.current.load5 + ' / ' + hostView.current.load15"></div>
+            <div class="metric-sub">Available RAM: <span v-text="hostView.current.memAvail"></span></div>
           </article>
           <article class="metric-card">
-            <div class="metric-title">Network I/O</div>
-            <div class="metric-value">1.8 MB/s</div>
-            <div class="metric-sub">Rx: 1.2 MB/s &bull; Tx: 0.6 MB/s</div>
+            <div class="metric-title">Root Disk (/) Usage</div>
+            <div class="metric-value" v-text="hostView.current.diskUsedPct"></div>
+            <div class="metric-sub">Mount: <code>/</code></div>
           </article>
         </div>
+
+        <div class="charts-grid">
+          <article class="chart-card">
+            <header><h4>CPU Utilization (%)</h4></header>
+            <div id="chart-cpu" class="chart-panel"></div>
+          </article>
+          <article class="chart-card">
+            <header><h4>System Load Average</h4></header>
+            <div id="chart-load" class="chart-panel"></div>
+          </article>
+          <article class="chart-card">
+            <header><h4>Memory & Swap</h4></header>
+            <div id="chart-mem" class="chart-panel"></div>
+          </article>
+          <article class="chart-card">
+            <header><h4>Network Throughput</h4></header>
+            <div id="chart-net" class="chart-panel"></div>
+          </article>
+          <article class="chart-card">
+            <header><h4>Disk I/O Throughput</h4></header>
+            <div id="chart-disk-io" class="chart-panel"></div>
+          </article>
+          <article class="chart-card">
+            <header><h4>Disk Usage (%)</h4></header>
+            <div id="chart-disk-space" class="chart-panel"></div>
+          </article>
+        </div>
+
         <article>
-          <header><h4>Disk Filesystems</h4></header>
-          <table>
+          <header><h4>Daily Average vs. Peak History (Last 14 Days)</h4></header>
+          <table class="striped">
             <thead>
-              <tr><th>Mount</th><th>Filesystem</th><th>Used</th><th>Available</th><th>Capacity</th></tr>
+              <tr><th>Date</th><th>CPU Avg %</th><th>CPU Peak %</th><th>RAM Avg</th><th>RAM Peak</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>/</code></td><td>ext4</td><td>38 GB</td><td>62 GB</td><td>38%</td></tr>
-              <tr><td><code>/data</code></td><td>ext4</td><td>12 GB</td><td>88 GB</td><td>12%</td></tr>
+              <tr v-if="hostView.history.length === 0">
+                <td colspan="5" style="text-align: center; color: var(--pico-muted-color);">No historical rollups available yet.</td>
+              </tr>
+              <tr v-for="d in hostView.history" :key="d.date">
+                <td><code v-text="d.date"></code></td>
+                <td v-text="d.cpu.avg_pct.toFixed(1) + '%'"></td>
+                <td><strong v-text="d.cpu.peak_pct.toFixed(1) + '%'"></strong></td>
+                <td v-text="hostView.formatBytes(d.ram.avg_bytes)"></td>
+                <td><strong v-text="hostView.formatBytes(d.ram.peak_bytes)"></strong></td>
+              </tr>
             </tbody>
           </table>
         </article>

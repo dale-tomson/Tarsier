@@ -56,6 +56,19 @@
     // Global Time & Refresh Controls
     timeRange: '1h',
     refreshInterval: '10s',
+    onTimeRangeChange() {
+      if (window.hostView && (this.route === 'host' || this.route === 'overview')) {
+        window.hostView.refresh();
+      }
+    },
+    onRefreshIntervalChange() {
+      if (window.hostView) {
+        window.hostView.startRefreshTimer();
+      }
+    },
+
+    // Daily summary data for Overview and Host
+    dailySummary: null,
 
     // Auth state
     authenticated: false,
@@ -209,10 +222,23 @@
 
   // Mount PetiteVue
   window.store = store;
+  const hostView = window.HostController ? window.HostController(store) : {};
+  window.hostView = hostView;
+
   window.PetiteVue.createApp({
     store,
+    hostView,
     overviewChart: window.ChartPanel ? window.ChartPanel('overview-chart') : {}
   }).mount();
+
+  // Handle visibility change (pause background polling when tab hidden)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && store.authenticated) {
+      if (store.route === 'host' || store.route === 'overview') {
+        hostView.refresh();
+      }
+    }
+  });
 
   // Boot: Check active session
   store.checkAuth();

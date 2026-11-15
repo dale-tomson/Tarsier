@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -137,6 +138,8 @@ func TestStaticAssets_ServedAndCompressed(t *testing.T) {
 		{"/static/vendor/uPlot.iife.min.js", "application/javascript; charset=utf-8", true},
 		{"/static/vendor/uPlot.min.css", "text/css; charset=utf-8", true},
 		{"/static/js/app.js", "application/javascript; charset=utf-8", false},
+		{"/static/js/charts.js", "application/javascript; charset=utf-8", false},
+		{"/static/js/host.js", "application/javascript; charset=utf-8", false},
 		{"/static/css/app.css", "text/css; charset=utf-8", false},
 	}
 
@@ -546,5 +549,49 @@ func TestSPAFallback(t *testing.T) {
 	resp404.Body.Close()
 	if resp404.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404 Not Found for non-existent static asset, got %d", resp404.StatusCode)
+	}
+}
+
+func TestFrontendBundle_SizeBudgetUnder65KB(t *testing.T) {
+	// Walk web.Assets and calculate total compressed gzip size of all embedded frontend files
+	var totalGzipBytes int64
+
+	err := fs.WalkDir(web.Assets, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		raw, err := web.Assets.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		var buf bytes.Buffer
+		gw, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+		if err != nil {
+			return err
+		}
+		if _, err := gw.Write(raw); err != nil {
+			return err
+		}
+		if err := gw.Close(); err != nil {
+			return err
+		}
+
+		totalGzipBytes += int64(buf.Len())
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk assets failed: %v", err)
+	}
+
+	const maxBudgetBytes = 65 * 1024 // 65 KB
+	t.Logf("Total embedded gzipped UI assets: %d bytes (%.2f KB) / 65 KB budget", totalGzipBytes, float64(totalGzipBytes)/1024)
+
+	if totalGzipBytes > maxBudgetBytes {
+		t.Fatalf("total gzipped UI bundle (%d bytes) exceeds 65 KB budget (%d bytes)", totalGzipBytes, maxBudgetBytes)
 	}
 }
