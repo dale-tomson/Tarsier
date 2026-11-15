@@ -48,6 +48,10 @@ type SourceDetector struct {
 	lastDetectedTS    int64
 	lastReadTS        int64
 	lastKnownDate     civilDate
+
+	levelCfg    LevelConfig
+	lastLevel   model.Level
+	lastLevelTS int64
 }
 
 // NewSourceDetector initializes a new SourceDetector for a single log source.
@@ -61,6 +65,11 @@ func NewSourceDetector(defaultTZ *time.Location, maxScanBytes int) *SourceDetect
 	return &SourceDetector{
 		defaultTZ:    defaultTZ,
 		maxScanBytes: maxScanBytes,
+		levelCfg: LevelConfig{
+			MaxScanBytes:  maxScanBytes,
+			KeywordLevels: true,
+			Hints:         true,
+		},
 	}
 }
 
