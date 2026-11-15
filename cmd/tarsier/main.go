@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dale-tomson/Tarsier/internal/alert"
 	"github.com/dale-tomson/Tarsier/internal/api"
 	"github.com/dale-tomson/Tarsier/internal/auth"
 	"github.com/dale-tomson/Tarsier/internal/collector/host"
@@ -152,6 +153,38 @@ func main() {
 	rollup := metrics.NewRollupEngine(store.Metrics, nil)
 	go rollup.Start(ctx)
 
+	// Initialize Alerting Engine (Dispatcher, RuleStore, RuleCache, StateMachine, Evaluators)
+	dispatcher, err := alert.NewDispatcher(cfg.Notifiers, store)
+	if err != nil {
+		log.Printf("Warning: failed to initialize alert dispatcher: %v", err)
+	}
+	ruleStore := alert.NewRuleStore(store.Config)
+	ruleCache := alert.NewRuleCache(ruleStore)
+	if err := ruleCache.Reload(ctx); err != nil {
+		log.Printf("Warning: failed initial alert rules cache reload: %v", err)
+	}
+
+	stateMachine := alert.NewStateMachine(ruleCache, ruleStore, store.Config, dispatcher, nil)
+	if err := stateMachine.Restore(ctx); err != nil {
+		log.Printf("Warning: failed to restore active alert states: %v", err)
+	}
+
+	metricEvaluator := alert.NewMetricEvaluator(ruleCache, ingestor.Cache(), stateMachine, nil)
+	go metricEvaluator.Run(ctx)
+
+	containerEvaluator := alert.NewContainerEvaluator(ruleCache, stateMachine, nil)
+	go containerEvaluator.Run(ctx)
+
+	logEvaluator := alert.NewLogEvaluator(ruleCache, nil, stateMachine, nil)
+	go logEvaluator.Run(ctx)
+
+	heartbeatWorker, err := alert.NewHeartbeatWorker(cfg.Heartbeat, alert.WithHeartbeatVersion(Version))
+	if err != nil {
+		log.Printf("Warning: failed to initialize heartbeat worker: %v", err)
+	} else {
+		go heartbeatWorker.Run(ctx)
+	}
+
 	// Start host collector if enabled
 	if cfg.Host.Enabled == nil || *cfg.Host.Enabled {
 		hostChan := make(chan model.MetricSample, 4096)
@@ -216,7 +249,7 @@ func main() {
 				MaxSources:  cfg.Cache.MaxSources,
 			})
 
-			// Route lifecycle events from watcher into stats collector
+			// Route lifecycle events from watcher into stats collector and container alert evaluator
 			go func() {
 				for {
 					select {
@@ -227,6 +260,7 @@ func main() {
 							return
 						}
 						statsCollector.HandleEvent(ev)
+						containerEvaluator.OnContainerEvent(ctx, ev)
 					}
 				}
 			}()
@@ -267,6 +301,11 @@ func main() {
 		Auth:            authenticator,
 		Sessions:        sessions,
 		Limiter:         limiter,
+		RuleStore:       ruleStore,
+		RuleCache:       ruleCache,
+		StateMachine:    stateMachine,
+		Dispatcher:      dispatcher,
+		Heartbeat:       heartbeatWorker,
 		Version:         Version,
 	})
 	if err != nil {
@@ -290,6 +329,12 @@ func main() {
 			return
 		}
 		cfg = reloaded
+		if dispatcher != nil {
+			dispatcher.Reload(reloaded.Notifiers)
+		}
+		if heartbeatWorker != nil {
+			_ = heartbeatWorker.Reload(reloaded.Heartbeat)
+		}
 		log.Printf("Configuration successfully reloaded")
 	})
 

@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/dale-tomson/Tarsier/internal/alert"
 	"github.com/dale-tomson/Tarsier/internal/auth"
 	"github.com/dale-tomson/Tarsier/internal/config"
 	"github.com/dale-tomson/Tarsier/internal/db"
@@ -35,6 +36,11 @@ type ServerConfig struct {
 	Sessions        *auth.SessionStore
 	Limiter         *auth.RateLimiter
 	DockerConnected func() bool
+	RuleStore       *alert.RuleStore
+	RuleCache       *alert.RuleCache
+	StateMachine    *alert.StateMachine
+	Dispatcher      *alert.Dispatcher
+	Heartbeat       *alert.HeartbeatWorker
 	Version         string
 }
 
@@ -46,13 +52,14 @@ func (defaultServerClock) Now() time.Time {
 
 // SystemHealthResponse describes system operational state and memory metrics.
 type SystemHealthResponse struct {
-	Status        string              `json:"status"`
-	Version       string              `json:"version"`
-	GoVersion     string              `json:"go_version"`
-	UptimeSeconds int64               `json:"uptime_seconds"`
-	StartedAt     string              `json:"started_at"`
-	Databases     map[string]DBHealth `json:"databases"`
-	Memory        MemoryHealth        `json:"memory"`
+	Status        string                 `json:"status"`
+	Version       string                 `json:"version"`
+	GoVersion     string                 `json:"go_version"`
+	UptimeSeconds int64                  `json:"uptime_seconds"`
+	StartedAt     string                 `json:"started_at"`
+	Databases     map[string]DBHealth    `json:"databases"`
+	Memory        MemoryHealth           `json:"memory"`
+	Heartbeat     *alert.HeartbeatStatus `json:"heartbeat,omitempty"`
 }
 
 // DBHealth describes SQLite database file status.
@@ -71,27 +78,32 @@ type MemoryHealth struct {
 
 // Server encapsulates the Chi HTTP router, static asset server, and background listeners.
 type Server struct {
-	cfg          *config.Config
-	configDB     *db.Handle
-	metricsDB    *db.Handle
+	cfg                 *config.Config
+	configDB            *db.Handle
+	metricsDB           *db.Handle
 	hotCache            *metrics.HotCache
 	rollup              *metrics.RollupEngine
 	logEngine           *logs.LogQueryEngine
 	tailCache           *logs.TailCache
 	clock               metrics.Clock
-	queryCache   *QueryCache
-	auth         *auth.Authenticator
-	sessions     *auth.SessionStore
+	queryCache          *QueryCache
+	auth                *auth.Authenticator
+	sessions            *auth.SessionStore
 	limiter             *auth.RateLimiter
 	dockerConnectedFunc func() bool
+	ruleStore           *alert.RuleStore
+	ruleCache           *alert.RuleCache
+	stateMachine        *alert.StateMachine
+	dispatcher          *alert.Dispatcher
+	heartbeat           *alert.HeartbeatWorker
 	authHandlers        *auth.Handlers
-	assets       *AssetsHandler
-	router       *chi.Mux
-	mu           sync.RWMutex
-	httpServer   *http.Server
-	listener     net.Listener
-	version      string
-	startTime    time.Time
+	assets              *AssetsHandler
+	router              *chi.Mux
+	mu                  sync.RWMutex
+	httpServer          *http.Server
+	listener            net.Listener
+	version             string
+	startTime           time.Time
 }
 
 // NewServer builds and configures the HTTP router, middleware stack, and asset handlers.
@@ -123,23 +135,28 @@ func NewServer(sc ServerConfig) (*Server, error) {
 	}
 
 	s := &Server{
-		cfg:          sc.Config,
-		configDB:     sc.ConfigDB,
-		metricsDB:    sc.MetricsDB,
+		cfg:                 sc.Config,
+		configDB:            sc.ConfigDB,
+		metricsDB:           sc.MetricsDB,
 		hotCache:            sc.HotCache,
 		rollup:              sc.Rollup,
 		logEngine:           sc.LogEngine,
 		tailCache:           sc.TailCache,
 		clock:               clock,
-		queryCache:   queryCache,
-		auth:         sc.Auth,
-		sessions:     sc.Sessions,
+		queryCache:          queryCache,
+		auth:                sc.Auth,
+		sessions:            sc.Sessions,
 		limiter:             sc.Limiter,
 		dockerConnectedFunc: sc.DockerConnected,
+		ruleStore:           sc.RuleStore,
+		ruleCache:           sc.RuleCache,
+		stateMachine:        sc.StateMachine,
+		dispatcher:          sc.Dispatcher,
+		heartbeat:           sc.Heartbeat,
 		authHandlers:        authHandlers,
-		assets:       assets,
-		version:      version,
-		startTime:    time.Now(),
+		assets:              assets,
+		version:             version,
+		startTime:           time.Now(),
 	}
 
 	s.setupRoutes()
@@ -184,6 +201,22 @@ func (s *Server) setupRoutes() {
 				authGroup.Get("/sources", s.handleSourcesList)
 				authGroup.Get("/logs", s.handleLogsQuery)
 				authGroup.Get("/logs/context", s.handleLogsContext)
+
+				// Alerts & Rules
+				authGroup.Get("/alerts/active", s.handleActiveAlerts)
+				authGroup.Get("/alerts/rules", s.handleListRules)
+				authGroup.Post("/alerts/rules", s.handleCreateRule)
+				authGroup.Get("/alerts/rules/{id}", s.handleGetRule)
+				authGroup.Put("/alerts/rules/{id}", s.handleUpdateRule)
+				authGroup.Delete("/alerts/rules/{id}", s.handleDeleteRule)
+				authGroup.Post("/alerts/rules/{id}/enable", s.handleEnableRule)
+				authGroup.Post("/alerts/rules/{id}/disable", s.handleDisableRule)
+				authGroup.Get("/alerts/templates", s.handleGetTemplates)
+				authGroup.Post("/alerts/rules/preview", s.handlePreviewRule)
+				authGroup.Get("/alerts/rules/export", s.handleExportRules)
+				authGroup.Post("/alerts/rules/import", s.handleImportRules)
+				authGroup.Get("/alerts/history", s.handleAlertHistory)
+				authGroup.Post("/alerts/test", s.handleTestNotification)
 			})
 		}
 	})
@@ -229,6 +262,12 @@ func (s *Server) handleSystemHealth(w http.ResponseWriter, r *http.Request) {
 		metricsPath = s.metricsDB.Path
 	}
 
+	var hbStatus *alert.HeartbeatStatus
+	if s.heartbeat != nil {
+		st := s.heartbeat.Status()
+		hbStatus = &st
+	}
+
 	resp := SystemHealthResponse{
 		Status:        "ok",
 		Version:       s.version,
@@ -245,6 +284,7 @@ func (s *Server) handleSystemHealth(w http.ResponseWriter, r *http.Request) {
 			SysBytes:        m.Sys,
 			NumGC:           m.NumGC,
 		},
+		Heartbeat: hbStatus,
 	}
 
 	auth.WriteJSON(w, http.StatusOK, resp)
