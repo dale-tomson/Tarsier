@@ -236,6 +236,70 @@ func (c *Client) GetContainerStats(ctx context.Context, id string) (DockerStatsP
 	return payload, nil
 }
 
+// ContainerLogsOptions specifies parameters for streaming container logs.
+type ContainerLogsOptions struct {
+	Follow     bool
+	Stdout     bool
+	Stderr     bool
+	Timestamps bool
+	Since      int64  // Unix epoch seconds
+	Tail       string // e.g. "all", "100"
+}
+
+// GetContainerLogsStream queries GET /containers/{id}/logs and returns a streaming io.ReadCloser response body.
+func (c *Client) GetContainerLogsStream(ctx context.Context, id string, opts ContainerLogsOptions) (io.ReadCloser, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, errors.New("container id must not be empty")
+	}
+
+	params := url.Values{}
+	if opts.Follow {
+		params.Set("follow", "1")
+	}
+	if opts.Stdout {
+		params.Set("stdout", "1")
+	}
+	if opts.Stderr {
+		params.Set("stderr", "1")
+	}
+	if opts.Timestamps {
+		params.Set("timestamps", "1")
+	}
+	if opts.Since > 0 {
+		params.Set("since", fmt.Sprintf("%d", opts.Since))
+	}
+	if opts.Tail != "" {
+		params.Set("tail", opts.Tail)
+	}
+
+	endpoint := fmt.Sprintf("http://localhost/containers/%s/logs?%s", url.PathEscape(id), params.Encode())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.streamHTTP.Do(req)
+	if err != nil {
+		if isSocketUnavailable(err) {
+			return nil, fmt.Errorf("%w: %v", ErrSocketUnavailable, err)
+		}
+		return nil, err
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		resp.Body.Close()
+		return nil, ErrContainerNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		lr := io.LimitReader(resp.Body, 4<<10)
+		body, _ := io.ReadAll(lr)
+		resp.Body.Close()
+		return nil, fmt.Errorf("container logs unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	return resp.Body, nil
+}
+
 func isSocketUnavailable(err error) bool {
 	if err == nil {
 		return false
