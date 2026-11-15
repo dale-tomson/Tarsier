@@ -16,7 +16,11 @@ const raw = window.location.hash.replace(/^#\/?/, '').trim();
 const qIdx = raw.indexOf('?');
 const path = (qIdx !== -1 ? raw.slice(0, qIdx) : raw).toLowerCase();
 const queryStr = qIdx !== -1 ? raw.slice(qIdx + 1) : '';
-const params = new URLSearchParams(queryStr);
+const searchParams = new URLSearchParams(queryStr);
+const params = {};
+for (const [k, v] of searchParams.entries()) {
+params[k] = v;
+}
 return {
 route: VALID_ROUTES.includes(path) ? path : 'overview',
 params: params
@@ -32,15 +36,27 @@ routeParams: parseHash().params,
 setRoute(r, params) {
 if (VALID_ROUTES.includes(r)) {
 this.route = r;
+const pObj = (params && typeof params === 'object') ? params : {};
+this.routeParams = pObj;
 let hash = '#' + r;
-if (params && typeof params === 'object') {
-const q = new URLSearchParams(params).toString();
+const q = new URLSearchParams(pObj).toString();
 if (q) hash += '?' + q;
-}
 window.location.hash = hash;
-this.routeParams = parseHash().params;
 if (r === 'settings' && this.authenticated) {
 this.loadSettings();
+} else if (r === 'container-detail' && pObj.container) {
+if (window.containersView && window.containersView.loadDetail) {
+window.containersView.loadDetail(pObj.container);
+}
+} else if (r === 'containers' || r === 'overview') {
+if (window.containersView && window.containersView.refresh) {
+window.containersView.refresh();
+}
+} else if (r === 'logs' && pObj.container) {
+this.selectedLogSource = 'container:' + pObj.container;
+if (window.logsView && window.logsView.loadSources) {
+window.logsView.loadSources();
+}
 }
 }
 },
@@ -125,12 +141,12 @@ this.onOverviewMounted();
 } else if (this.route === 'settings') {
 this.loadSettings();
 } else if (this.route === 'container-detail') {
-const cName = this.routeParams ? this.routeParams.get('container') : '';
+const cName = this.routeParams ? (this.routeParams.container || '') : '';
 if (window.containersView && window.containersView.loadDetail) {
 window.containersView.loadDetail(cName);
 }
 } else if (this.route === 'logs') {
-const cName = this.routeParams ? this.routeParams.get('container') : '';
+const cName = this.routeParams ? (this.routeParams.container || '') : '';
 if (cName) this.selectedLogSource = 'container:' + cName;
 }
 } catch (e) {
@@ -171,12 +187,12 @@ this.onOverviewMounted();
 } else if (this.route === 'settings') {
 this.loadSettings();
 } else if (this.route === 'container-detail') {
-const cName = this.routeParams ? this.routeParams.get('container') : '';
+const cName = this.routeParams ? (this.routeParams.container || '') : '';
 if (window.containersView && window.containersView.loadDetail) {
 window.containersView.loadDetail(cName);
 }
 } else if (this.route === 'logs') {
-const cName = this.routeParams ? this.routeParams.get('container') : '';
+const cName = this.routeParams ? (this.routeParams.container || '') : '';
 if (cName) this.selectedLogSource = 'container:' + cName;
 }
 } catch (err) {
@@ -255,12 +271,12 @@ if (window.containersView && window.containersView.refresh) {
 window.containersView.refresh();
 }
 } else if (store.route === 'container-detail') {
-const cName = parsed.params.get('container') || '';
+const cName = parsed.params.container || '';
 if (window.containersView && window.containersView.loadDetail) {
 window.containersView.loadDetail(cName);
 }
 } else if (store.route === 'logs') {
-const cName = parsed.params.get('container');
+const cName = parsed.params.container;
 if (cName) {
 store.selectedLogSource = 'container:' + cName;
 }

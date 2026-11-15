@@ -102,8 +102,7 @@ destroyDetailCharts();
 },
 detailMounted() {
 this.startRefreshTimer();
-const params = appStore.routeParams || new URLSearchParams(window.location.hash.split('?')[1] || '');
-const cName = params.get('container') || this.detailContainerName;
+const cName = (appStore.routeParams && appStore.routeParams.container) || (new URLSearchParams(window.location.hash.split('?')[1] || '').get('container')) || this.detailContainerName;
 if (cName) {
 this.loadDetail(cName);
 }
@@ -194,6 +193,7 @@ return list;
 },
 openDetail(name) {
 this.detailContainerName = name;
+this.loadDetail(name);
 appStore.setRoute('container-detail', { container: name });
 },
 async loadDetail(name, silent = false) {
