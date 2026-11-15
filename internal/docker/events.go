@@ -307,6 +307,13 @@ func (w *EventWatcher) persistAndDispatch(ctx context.Context, ev ContainerEvent
 			// 2. Update container table state
 			switch ev.Action {
 			case "start":
+				if ev.ContainerName != "" {
+					_, _ = tx.ExecContext(ctx, `
+						UPDATE container SET last_status = 'exited'
+						WHERE name = ? AND id != ? AND last_status = 'running';
+					`, ev.ContainerName, ev.ContainerID)
+				}
+
 				_, err = tx.ExecContext(ctx, `
 					INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
 					VALUES (?, ?, ?, ?, ?, 'running', 0)

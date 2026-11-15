@@ -140,10 +140,19 @@ func (s *Server) queryContainersList(ctx context.Context) (*ContainersListRespon
 		return resp, nil
 	}
 
-	// 1. Fetch discovered containers from config.db
+	// 1. Fetch discovered containers from config.db, deduplicated by name (prioritizing running state and latest last_seen)
 	rows, err := s.configDB.RO.QueryContext(ctx, `
+		WITH ranked AS (
+			SELECT id, name, image, first_seen, last_seen, last_status, restart_count,
+			       ROW_NUMBER() OVER (
+			           PARTITION BY name 
+			           ORDER BY CASE WHEN last_status = 'running' THEN 1 ELSE 2 END, last_seen DESC
+			       ) as rn
+			FROM container
+		)
 		SELECT id, name, image, first_seen, last_seen, last_status, restart_count
-		FROM container
+		FROM ranked
+		WHERE rn = 1
 		ORDER BY name ASC;
 	`)
 	if err != nil {

@@ -65,8 +65,15 @@ delete detailCharts[key];
 }
 });
 }
-return {
+const ctrl = {
 containers: [],
+activeTab: 'running',
+get runningContainers() {
+return (this.containers || []).filter(c => c.state === 'running');
+},
+get exitedContainers() {
+return (this.containers || []).filter(c => c.state !== 'running');
+},
 dockerConnected: true,
 search: '',
 sortCol: 'name',
@@ -74,16 +81,35 @@ sortAsc: true,
 detailModalOpen: false,
 detailLoading: false,
 detailData: null,
+detailContainerName: '',
+getHealthCircleClass(c) {
+if (!c) return 'circle-na';
+const h = (c.health || '').toLowerCase();
+const s = (c.state || '').toLowerCase();
+if (h === 'green' || h === 'healthy') return 'circle-healthy';
+if (h === 'red' || h === 'unhealthy' || s === 'exited' || s === 'dead' || s === 'restarting') return 'circle-unhealthy';
+if (h === 'amber') return 'circle-unhealthy';
+if (h === 'na' || h === 'n/a') return 'circle-na';
+return s === 'running' ? 'circle-healthy' : 'circle-na';
+},
 mounted() {
 this.refresh();
 this.startRefreshTimer();
 },
 unmounted() {
-if (refreshTimer) {
-clearInterval(refreshTimer);
-refreshTimer = null;
-}
+this.stopRefreshTimer();
 destroyDetailCharts();
+},
+detailMounted() {
+this.startRefreshTimer();
+const cName = (appStore.routeParams && appStore.routeParams.container) || (new URLSearchParams(window.location.hash.split('?')[1] || '').get('container')) || this.detailContainerName;
+if (cName) {
+this.loadDetail(cName);
+}
+},
+detailUnmounted() {
+destroyDetailCharts();
+this.detailData = null;
 },
 startRefreshTimer() {
 if (refreshTimer) clearInterval(refreshTimer);
@@ -93,8 +119,16 @@ if (ms) {
 refreshTimer = setInterval(() => {
 if (appStore.route === 'containers' || appStore.route === 'overview') {
 this.refresh();
+} else if (appStore.route === 'container-detail' && this.detailContainerName) {
+this.loadDetail(this.detailContainerName, true);
 }
 }, ms);
+}
+},
+stopRefreshTimer() {
+if (refreshTimer) {
+clearInterval(refreshTimer);
+refreshTimer = null;
 }
 },
 async refresh() {
@@ -116,8 +150,9 @@ this.sortAsc = true;
 }
 },
 get filteredContainers() {
+const base = this.activeTab === 'exited' ? this.exitedContainers : this.runningContainers;
 const q = (this.search || '').trim().toLowerCase();
-let list = (this.containers || []).slice();
+let list = base.slice();
 if (q) {
 list = list.filter(c =>
 (c.name && c.name.toLowerCase().includes(q)) ||
@@ -156,11 +191,18 @@ return 0;
 });
 return list;
 },
-async openDetail(name) {
-this.detailModalOpen = true;
+openDetail(name) {
+this.detailContainerName = name;
+this.loadDetail(name);
+appStore.setRoute('container-detail', { container: name });
+},
+async loadDetail(name, silent = false) {
+if (!name) return;
+this.detailContainerName = name;
+if (!silent) {
 this.detailLoading = true;
-this.detailData = null;
 destroyDetailCharts();
+}
 try {
 const data = await appStore.apiFetch('/api/v1/containers/' + encodeURIComponent(name) + '?days=7');
 this.detailData = data;
@@ -176,11 +218,12 @@ closeDetail() {
 this.detailModalOpen = false;
 this.detailData = null;
 destroyDetailCharts();
+appStore.setRoute('containers');
 },
 viewLogs(name) {
-appStore.selectedLogSource = 'container:' + name;
 this.closeDetail();
-appStore.setRoute('logs');
+appStore.selectedLogSource = 'container:' + name;
+appStore.setRoute('logs', { container: name });
 },
 async renderDetailCharts(name) {
 if (!window.uPlot) return;
@@ -203,7 +246,7 @@ fetchMetric('net_rx_bps'),
 fetchMetric('net_tx_bps')
 ]);
 const theme = window.ChartColors ? window.ChartColors.getTheme() : { text: '#475569', grid: '#e2e8f0' };
-const cpuEl = document.getElementById('modal-chart-cpu');
+const cpuEl = document.getElementById('detail-chart-cpu') || document.getElementById('modal-chart-cpu');
 if (cpuEl) {
 const cpuData = alignChartData([cpuPts]);
 detailCharts.cpu = new window.uPlot({
@@ -220,7 +263,7 @@ axes: [
 ]
 }, cpuData, cpuEl);
 }
-const memEl = document.getElementById('modal-chart-mem');
+const memEl = document.getElementById('detail-chart-mem') || document.getElementById('modal-chart-mem');
 if (memEl) {
 const memData = alignChartData([memPts]);
 detailCharts.mem = new window.uPlot({
@@ -237,7 +280,7 @@ axes: [
 ]
 }, memData, memEl);
 }
-const netEl = document.getElementById('modal-chart-net');
+const netEl = document.getElementById('detail-chart-net') || document.getElementById('modal-chart-net');
 if (netEl) {
 const netData = alignChartData([rxPts, txPts]);
 detailCharts.net = new window.uPlot({
@@ -260,6 +303,7 @@ formatBytes,
 formatBps,
 formatUptime
 };
+return window.PetiteVue ? window.PetiteVue.reactive(ctrl) : ctrl;
 }
 window.ContainersController = ContainersController;
 })();

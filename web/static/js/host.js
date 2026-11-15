@@ -46,10 +46,10 @@ result.push(vals);
 return result;
 }
 function HostController(appStore) {
-return {
+const ctrl = {
 store: appStore,
 summary: {
-cpu: { avg_pct: 0, peak_pct: 0 },
+cpu: { avg_pct: 0, peak_pct: 0, cores: 0 },
 ram: { avg_bytes: 0, peak_bytes: 0, total_bytes: 0 }
 },
 current: {
@@ -59,6 +59,8 @@ memAvail: '--',
 load1: '--',
 load5: '--',
 load15: '--',
+diskTotal: '--',
+diskUsed: '--',
 diskAvail: '--',
 diskUsedPct: '--'
 },
@@ -74,7 +76,7 @@ this.startRefreshTimer();
 },
 unmounted() {
 this.stopRefreshTimer();
-const chartIds = ['chart-cpu', 'chart-load', 'chart-mem', 'chart-net', 'chart-disk-io', 'chart-disk-space'];
+const chartIds = ['chart-cpu', 'chart-load', 'chart-mem', 'chart-net', 'chart-disk-io', 'chart-disk-space', 'overview-chart'];
 chartIds.forEach(id => window.TarsierCharts.unmountChart(id));
 },
 initCharts() {
@@ -167,8 +169,9 @@ return (res && res.points) || [];
 return [];
 }
 };
-const [cpuPts, l1Pts, l5Pts, l15Pts, memUsedPts, memAvailPts, swapUsedPts, netRxPts, netTxPts, diskReadPts, diskWritePts, diskUsedPctPts] = await Promise.all([
+const [cpuPts, memUsedPctPts, l1Pts, l5Pts, l15Pts, memUsedPts, memAvailPts, swapUsedPts, netRxPts, netTxPts, diskReadPts, diskWritePts, diskUsedPctPts, diskTotalPts, diskUsedPts] = await Promise.all([
 fetchMetric('cpu_pct'),
+fetchMetric('mem_used_pct'),
 fetchMetric('load_1m'),
 fetchMetric('load_5m'),
 fetchMetric('load_15m'),
@@ -179,7 +182,9 @@ fetchMetric('net_rx_bps'),
 fetchMetric('net_tx_bps'),
 fetchMetric('disk_read_bps'),
 fetchMetric('disk_write_bps'),
-fetchMetric('disk_used_pct', 'disk:/')
+fetchMetric('disk_used_pct', 'disk:/'),
+fetchMetric('disk_total_bytes', 'disk:/'),
+fetchMetric('disk_used_bytes', 'disk:/')
 ]);
 if (cpuPts.length > 0) this.current.cpuPct = cpuPts[cpuPts.length - 1].v.toFixed(1) + '%';
 if (memUsedPts.length > 0) this.current.memUsed = formatBytes(memUsedPts[memUsedPts.length - 1].v);
@@ -187,8 +192,19 @@ if (memAvailPts.length > 0) this.current.memAvail = formatBytes(memAvailPts[memA
 if (l1Pts.length > 0) this.current.load1 = l1Pts[l1Pts.length - 1].v.toFixed(2);
 if (l5Pts.length > 0) this.current.load5 = l5Pts[l5Pts.length - 1].v.toFixed(2);
 if (l15Pts.length > 0) this.current.load15 = l15Pts[l15Pts.length - 1].v.toFixed(2);
+if (diskTotalPts.length > 0) this.current.diskTotal = formatBytes(diskTotalPts[diskTotalPts.length - 1].v);
+if (diskUsedPts.length > 0) this.current.diskUsed = formatBytes(diskUsedPts[diskUsedPts.length - 1].v);
 if (diskUsedPctPts.length > 0) this.current.diskUsedPct = diskUsedPctPts[diskUsedPctPts.length - 1].v.toFixed(1) + '%';
+let ramPctPts = memUsedPctPts;
+if ((!ramPctPts || ramPctPts.length === 0) && memUsedPts && memUsedPts.length > 0) {
+const totalBytes = (this.summary && this.summary.ram && this.summary.ram.total_bytes) || (this.store && this.store.dailySummary && this.store.dailySummary.host && this.store.dailySummary.host.ram && this.store.dailySummary.host.ram.total_bytes) || 0;
+if (totalBytes > 0) {
+ramPctPts = memUsedPts.map(p => ({ ts: p.ts, v: (p.v / totalBytes) * 100 }));
+}
+}
 const C = window.TarsierCharts;
+this._lastOverviewData = alignChartData([cpuPts, ramPctPts]);
+C.updateChart('overview-chart', this._lastOverviewData);
 C.updateChart('chart-cpu', alignChartData([cpuPts]));
 C.updateChart('chart-load', alignChartData([l1Pts, l5Pts, l15Pts]));
 C.updateChart('chart-mem', alignChartData([memUsedPts, memAvailPts, swapUsedPts]));
@@ -196,6 +212,11 @@ C.updateChart('chart-net', alignChartData([netRxPts, netTxPts]));
 C.updateChart('chart-disk-io', alignChartData([diskReadPts, diskWritePts]));
 C.updateChart('chart-disk-space', alignChartData([diskUsedPctPts]));
 } catch (e) {
+}
+},
+updateOverviewChart() {
+if (this._lastOverviewData && window.TarsierCharts) {
+window.TarsierCharts.updateChart('overview-chart', this._lastOverviewData);
 }
 },
 startRefreshTimer() {
@@ -219,6 +240,7 @@ this._timer = null;
 }
 }
 };
+return window.PetiteVue ? window.PetiteVue.reactive(ctrl) : ctrl;
 }
 window.HostController = HostController;
 })();

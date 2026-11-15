@@ -354,3 +354,78 @@ func TestDiscovery_SyncContainersToConfigDB(t *testing.T) {
 		t.Errorf("expected exactly 3 bulk containers inserted due to maxSources cap, got %d", count)
 	}
 }
+
+func TestDiscovery_SyncContainersSupersedesAndReconcilesStale(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dbDir := t.TempDir()
+	store, err := db.Open(ctx, dbDir)
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	// Initial container c1 running with name "web-server"
+	containersV1 := []ContainerInfo{
+		{
+			ID:           "c1",
+			Name:         "web-server",
+			Image:        "nginx:alpine",
+			State:        "running",
+			RestartCount: 0,
+		},
+		{
+			ID:           "c2",
+			Name:         "redis-cache",
+			Image:        "redis:7",
+			State:        "running",
+			RestartCount: 0,
+		},
+	}
+	if err := SyncContainers(ctx, store.Config, containersV1, 500); err != nil {
+		t.Fatalf("v1 sync failed: %v", err)
+	}
+
+	// Now container "web-server" is recreated with new ID "c3".
+	// "redis-cache" was deleted/stopped and absent from Docker!
+	containersV2 := []ContainerInfo{
+		{
+			ID:           "c3",
+			Name:         "web-server",
+			Image:        "nginx:alpine",
+			State:        "running",
+			RestartCount: 0,
+		},
+	}
+	if err := SyncContainers(ctx, store.Config, containersV2, 500); err != nil {
+		t.Fatalf("v2 sync failed: %v", err)
+	}
+
+	// 1. Verify c1 (old web-server) status was changed to 'exited'
+	var c1Status string
+	if err := store.Config.RO.QueryRowContext(ctx, `SELECT last_status FROM container WHERE id = 'c1'`).Scan(&c1Status); err != nil {
+		t.Fatalf("query c1 status: %v", err)
+	}
+	if c1Status != "exited" {
+		t.Errorf("expected superseded c1 status 'exited', got %q", c1Status)
+	}
+
+	// 2. Verify c2 (absent redis-cache) status was reconciled to 'exited'
+	var c2Status string
+	if err := store.Config.RO.QueryRowContext(ctx, `SELECT last_status FROM container WHERE id = 'c2'`).Scan(&c2Status); err != nil {
+		t.Fatalf("query c2 status: %v", err)
+	}
+	if c2Status != "exited" {
+		t.Errorf("expected absent c2 status 'exited', got %q", c2Status)
+	}
+
+	// 3. Verify c3 (new web-server) status is 'running'
+	var c3Status string
+	if err := store.Config.RO.QueryRowContext(ctx, `SELECT last_status FROM container WHERE id = 'c3'`).Scan(&c3Status); err != nil {
+		t.Fatalf("query c3 status: %v", err)
+	}
+	if c3Status != "running" {
+		t.Errorf("expected new c3 status 'running', got %q", c3Status)
+	}
+}

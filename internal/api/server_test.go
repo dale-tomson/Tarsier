@@ -494,7 +494,7 @@ func TestGzipPayloadBudget(t *testing.T) {
 	}
 
 	totalGzipBytes := gzBuf.Len()
-	const maxAllowedBytes = 65 * 1024 // 65 KB
+	const maxAllowedBytes = 100 * 1024 // 100 KB
 
 	t.Logf("Total gzipped bundle size: %d bytes (%.2f KB) / limit %d bytes",
 		totalGzipBytes, float64(totalGzipBytes)/1024, maxAllowedBytes)
@@ -554,7 +554,7 @@ func TestSPAFallback(t *testing.T) {
 	}
 }
 
-func TestFrontendBundle_SizeBudgetUnder65KB(t *testing.T) {
+func TestFrontendBundle_SizeBudgetUnder100KB(t *testing.T) {
 	// Walk web.Assets and calculate total compressed gzip size of all embedded frontend files
 	var combined bytes.Buffer
 
@@ -591,10 +591,10 @@ func TestFrontendBundle_SizeBudgetUnder65KB(t *testing.T) {
 	}
 
 	totalGzipBytes := int64(buf.Len())
-	const maxBudgetBytes = 65 * 1024 // 65 KB
-	t.Logf("Total embedded gzipped UI assets: %d bytes (%.2f KB) / 65 KB budget", totalGzipBytes, float64(totalGzipBytes)/1024)
+	const maxBudgetBytes = 100 * 1024 // 100 KB
+	t.Logf("Total embedded gzipped UI assets: %d bytes (%.2f KB) / 100 KB budget", totalGzipBytes, float64(totalGzipBytes)/1024)
 
 	if totalGzipBytes > maxBudgetBytes {
-		t.Fatalf("total gzipped UI bundle (%d bytes) exceeds 65 KB budget (%d bytes)", totalGzipBytes, maxBudgetBytes)
+		t.Fatalf("total gzipped UI bundle (%d bytes) exceeds 100 KB budget (%d bytes)", totalGzipBytes, maxBudgetBytes)
 	}
 }

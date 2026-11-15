@@ -140,6 +140,27 @@ func TestDiscoverMounts_FilteringAndDeduplication(t *testing.T) {
 	if !mountMap["/mnt/data"] {
 		t.Errorf("expected '/mnt/data' mount point")
 	}
+
+	// Verify container overlay root mount '/' is never excluded
+	containerMountinfo := `50 49 0:60 / / rw,relatime - overlay overlay rw,lowerdir=/var/lib/docker
+51 50 98:0 / /data rw - ext4 /dev/sda1 rw
+`
+	if err := os.WriteFile(filepath.Join(proc1Dir, "mountinfo"), []byte(containerMountinfo), 0644); err != nil {
+		t.Fatalf("write container mountinfo: %v", err)
+	}
+	cMounts, err := discoverMounts(tmpDir, nil, nil)
+	if err != nil {
+		t.Fatalf("discoverMounts failed: %v", err)
+	}
+	hasRoot := false
+	for _, m := range cMounts {
+		if m == "/" {
+			hasRoot = true
+		}
+	}
+	if !hasRoot {
+		t.Errorf("expected container overlay root '/' to be preserved, got %v", cMounts)
+	}
 }
 
 func TestParseNetwork_ExcludesVirtualInterfaces(t *testing.T) {

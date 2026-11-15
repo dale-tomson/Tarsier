@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dale-tomson/Tarsier/internal/auth"
+	"github.com/dale-tomson/Tarsier/internal/collector/host"
 )
 
 // TimeSeriesPoint represents a single data point in the host metrics response.
@@ -44,6 +47,7 @@ type DailyHostSummary struct {
 	CPU struct {
 		AvgPct  float64 `json:"avg_pct"`
 		PeakPct float64 `json:"peak_pct"`
+		Cores   int     `json:"cores"`
 	} `json:"cpu"`
 	RAM struct {
 		AvgBytes   int64 `json:"avg_bytes"`
@@ -323,6 +327,11 @@ func (s *Server) computeDailySummary(ctx context.Context) (*TodaySummaryResponse
 		Date:       todayStr,
 		Containers: make([]DailyContainerSummary, 0),
 	}
+	procDir := os.Getenv("HOST_PROC")
+	if procDir == "" {
+		procDir = "/proc"
+	}
+	resp.Host.CPU.Cores = host.CountCores(procDir, runtime.NumCPU())
 
 	if s.rollup == nil {
 		return resp, nil

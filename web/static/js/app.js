@@ -1,6 +1,6 @@
 (function() {
 'use strict';
-const VALID_ROUTES = ['overview', 'host', 'containers', 'logs', 'alerts', 'settings'];
+const VALID_ROUTES = ['overview', 'host', 'containers', 'container-detail', 'logs', 'alerts', 'settings'];
 const savedTheme = localStorage.getItem('tarsier-theme') || 'auto';
 applyTheme(savedTheme);
 function applyTheme(theme) {
@@ -11,19 +11,52 @@ document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
 document.documentElement.setAttribute('data-theme', theme);
 }
 }
+function parseHash() {
+const raw = window.location.hash.replace(/^#\/?/, '').trim();
+const qIdx = raw.indexOf('?');
+const path = (qIdx !== -1 ? raw.slice(0, qIdx) : raw).toLowerCase();
+const queryStr = qIdx !== -1 ? raw.slice(qIdx + 1) : '';
+const searchParams = new URLSearchParams(queryStr);
+const params = {};
+for (const [k, v] of searchParams.entries()) {
+params[k] = v;
+}
+return {
+route: VALID_ROUTES.includes(path) ? path : 'overview',
+params: params
+};
+}
 function getRouteFromHash() {
-const raw = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
-return VALID_ROUTES.includes(raw) ? raw : 'overview';
+return parseHash().route;
 }
 const toast = window.ToastState ? window.ToastState() : { show: () => {}, dismiss: () => {} };
 const store = window.PetiteVue.reactive({
 route: getRouteFromHash(),
-setRoute(r) {
+routeParams: parseHash().params,
+setRoute(r, params) {
 if (VALID_ROUTES.includes(r)) {
 this.route = r;
-window.location.hash = '#' + r;
+const pObj = (params && typeof params === 'object') ? params : {};
+this.routeParams = pObj;
+let hash = '#' + r;
+const q = new URLSearchParams(pObj).toString();
+if (q) hash += '?' + q;
+window.location.hash = hash;
 if (r === 'settings' && this.authenticated) {
 this.loadSettings();
+} else if (r === 'container-detail' && pObj.container) {
+if (window.containersView && window.containersView.loadDetail) {
+window.containersView.loadDetail(pObj.container);
+}
+} else if (r === 'containers' || r === 'overview') {
+if (window.containersView && window.containersView.refresh) {
+window.containersView.refresh();
+}
+} else if (r === 'logs' && pObj.container) {
+this.selectedLogSource = 'container:' + pObj.container;
+if (window.logsView && window.logsView.loadSources) {
+window.logsView.loadSources();
+}
 }
 }
 },
@@ -42,13 +75,19 @@ onTimeRangeChange() {
 if (window.hostView && (this.route === 'host' || this.route === 'overview')) {
 window.hostView.refresh();
 }
-if (window.containersView && this.route === 'containers' && window.containersView.detailModalOpen && window.containersView.detailData) {
+if (window.containersView && (this.route === 'container-detail' || (this.route === 'containers' && window.containersView.detailModalOpen)) && window.containersView.detailData) {
 window.containersView.renderDetailCharts(window.containersView.detailData.container.name);
 }
 },
 onRefreshIntervalChange() {
-if (window.hostView) {
+if (window.hostView && window.hostView.startRefreshTimer) {
 window.hostView.startRefreshTimer();
+}
+if (window.containersView && window.containersView.startRefreshTimer) {
+window.containersView.startRefreshTimer();
+}
+if (window.alertsView && window.alertsView.startTimer) {
+window.alertsView.startTimer();
 }
 },
 dailySummary: null,
@@ -97,8 +136,18 @@ try {
 const data = await this.apiFetch('/api/v1/auth/me');
 this.authenticated = true;
 this.user = data.username || 'admin';
-if (this.route === 'settings') {
+if (this.route === 'overview') {
+this.onOverviewMounted();
+} else if (this.route === 'settings') {
 this.loadSettings();
+} else if (this.route === 'container-detail') {
+const cName = this.routeParams ? (this.routeParams.container || '') : '';
+if (window.containersView && window.containersView.loadDetail) {
+window.containersView.loadDetail(cName);
+}
+} else if (this.route === 'logs') {
+const cName = this.routeParams ? (this.routeParams.container || '') : '';
+if (cName) this.selectedLogSource = 'container:' + cName;
 }
 } catch (e) {
 this.authenticated = false;
@@ -133,8 +182,18 @@ this.user = data.username || this.loginForm.username;
 this.loginForm.password = '';
 this.loginForm.error = '';
 this.toast.show('Logged in successfully', 'success');
-if (this.route === 'settings') {
+if (this.route === 'overview') {
+this.onOverviewMounted();
+} else if (this.route === 'settings') {
 this.loadSettings();
+} else if (this.route === 'container-detail') {
+const cName = this.routeParams ? (this.routeParams.container || '') : '';
+if (window.containersView && window.containersView.loadDetail) {
+window.containersView.loadDetail(cName);
+}
+} else if (this.route === 'logs') {
+const cName = this.routeParams ? (this.routeParams.container || '') : '';
+if (cName) this.selectedLogSource = 'container:' + cName;
 }
 } catch (err) {
 this.loginForm.error = err.message || 'Network error';
@@ -165,10 +224,42 @@ window.settingsView.mounted();
 }
 } catch (e) {
 }
+},
+async loadHealth() {
+try {
+this.systemHealth = await this.apiFetch('/api/v1/system/health');
+} catch (e) {
+}
+},
+onOverviewMounted() {
+if (!this.authenticated) return;
+if (window.hostView) {
+if (window.hostView.refresh) window.hostView.refresh();
+if (window.hostView.startRefreshTimer) window.hostView.startRefreshTimer();
+}
+if (window.containersView) {
+if (window.containersView.refresh) window.containersView.refresh();
+if (window.containersView.startRefreshTimer) window.containersView.startRefreshTimer();
+}
+if (window.alertsView) {
+if (window.alertsView.fetchActive) window.alertsView.fetchActive();
+if (window.alertsView.startTimer) window.alertsView.startTimer();
+}
+this.loadHealth();
+},
+onOverviewUnmounted() {
+if (window.hostView && window.hostView.stopRefreshTimer) {
+window.hostView.stopRefreshTimer();
+}
+if (window.containersView && window.containersView.stopRefreshTimer) {
+window.containersView.stopRefreshTimer();
+}
 }
 });
 window.addEventListener('hashchange', () => {
-store.route = getRouteFromHash();
+const parsed = parseHash();
+store.route = parsed.route;
+store.routeParams = parsed.params;
 if (store.authenticated) {
 if (store.route === 'settings') {
 store.loadSettings();
@@ -179,7 +270,16 @@ window.settingsView.mounted();
 if (window.containersView && window.containersView.refresh) {
 window.containersView.refresh();
 }
+} else if (store.route === 'container-detail') {
+const cName = parsed.params.container || '';
+if (window.containersView && window.containersView.loadDetail) {
+window.containersView.loadDetail(cName);
+}
 } else if (store.route === 'logs') {
+const cName = parsed.params.container;
+if (cName) {
+store.selectedLogSource = 'container:' + cName;
+}
 if (window.logsView && window.logsView.mounted) {
 window.logsView.mounted();
 }
@@ -196,15 +296,15 @@ if (store.theme === 'auto') applyTheme('auto');
 });
 }
 window.store = store;
-const hostView = window.HostController ? window.HostController(store) : {};
+const hostView = window.PetiteVue.reactive(window.HostController ? window.HostController(store) : {});
 window.hostView = hostView;
-const containersView = window.ContainersController ? window.ContainersController(store) : {};
+const containersView = window.PetiteVue.reactive(window.ContainersController ? window.ContainersController(store) : {});
 window.containersView = containersView;
-const logsView = window.LogsController ? window.LogsController(store) : {};
+const logsView = window.PetiteVue.reactive(window.LogsController ? window.LogsController(store) : {});
 window.logsView = logsView;
-const alertsView = window.AlertsController ? window.AlertsController(store) : {};
+const alertsView = window.PetiteVue.reactive(window.AlertsController ? window.AlertsController(store) : {});
 window.alertsView = alertsView;
-const settingsView = window.SettingsController ? window.SettingsController(store) : {};
+const settingsView = window.PetiteVue.reactive(window.SettingsController ? window.SettingsController(store) : {});
 window.settingsView = settingsView;
 window.PetiteVue.createApp({
 store,
@@ -227,7 +327,7 @@ if (store.route === 'logs') {
 logsView.pollLatest();
 }
 if (store.route === 'alerts' || store.route === 'overview') {
-alertsView.fetchActiveAlerts();
+alertsView.fetchActive();
 }
 }
 });

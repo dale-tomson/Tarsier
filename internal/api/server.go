@@ -251,6 +251,16 @@ func (s *Server) setupRoutes() {
 	// Static Assets
 	r.Get("/static/*", s.assets.ServeStatic)
 
+	// Direct icon routes
+	r.Get("/favicon.ico", func(w http.ResponseWriter, req *http.Request) {
+		req.URL.Path = "/static/icon.svg"
+		s.assets.ServeStatic(w, req)
+	})
+	r.Get("/icon.svg", func(w http.ResponseWriter, req *http.Request) {
+		req.URL.Path = "/static/icon.svg"
+		s.assets.ServeStatic(w, req)
+	})
+
 	// SPA Shell & Fallback for non-API client routes
 	r.Get("/", s.assets.ServeSPA)
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {

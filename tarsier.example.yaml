@@ -1,110 +1,367 @@
 # ==============================================================================
-# Tarsier Example Configuration
+# Tarsier - Configuration Specification & Reference
 # ==============================================================================
-# Environment variable substitution is supported via ${VAR} or ${VAR:-default}.
-# Alert rules are configured directly in the Web UI (stored in config.db),
-# not inside this YAML file.
+# Tarsier is an ultra-lightweight, single-server observability engine.
+#
+# IMPORTANT CONFIGURATION RULES:
+# 1. Environment Variable Substitution:
+#    Values support '${VAR}' or '${VAR:-fallback}' syntax.
+#    Variables are expanded at load time. Unclosed substitutions or invalid
+#    names will cause configuration validation failure.
+# 2. Strict Schema Enforcement (KnownFields):
+#    Unknown or misspelled YAML keys are strictly rejected at startup to prevent
+#    silent misconfiguration.
+# 3. Dynamic Alert Rule Storage:
+#    Alert rules and notification targets are configured interactively in the
+#    Web UI and stored directly in SQLite ('config.db'). They are NOT declared
+#    in this static YAML file.
+# 4. Memory & Performance Envelope:
+#    Engineered for < 256 MB RAM environments (GOMEMLIMIT=200MiB). In-memory ring
+#    buffers and cache horizons have upper bounds documented below.
+# ==============================================================================
 
-# HTTP API and Dashboard server settings
+# ------------------------------------------------------------------------------
+# 1. HTTP Server & Web Dashboard
+# ------------------------------------------------------------------------------
 server:
+  # Network interface and port for the embedded web dashboard and REST API.
+  # Format: ":port", "127.0.0.1:port", or "0.0.0.0:port".
+  # Default: ":8080"
   listen: ":8080"
+
+  # Canonical external URL where Tarsier is accessible.
+  # Used for generating clickable links in outgoing email/Discord alert notifications
+  # and pre-cleanup digest reports. Leave empty or set to your public domain/IP.
+  # Example: "https://tarsier.yourdomain.com"
   base_url: "https://tarsier.example.com"
+
+  # Display and query timezone for timestamps in the UI and API responses.
+  # Must be a valid IANA Time Zone database location (e.g., "UTC", "America/New_York",
+  # "Europe/London", "Asia/Tokyo") or "Local".
+  # Default: "UTC"
   timezone: "UTC"
 
-# Web dashboard authentication and session security
+# ------------------------------------------------------------------------------
+# 2. Web Authentication & Session Security
+# ------------------------------------------------------------------------------
 auth:
+  # Duration for which an authenticated admin web session cookie remains valid.
+  # Valid units: "s", "m", "h", "d" (e.g. "24h", "7d").
+  # Default: "24h"
   session_ttl: "24h"
+
+  # Maximum number of consecutive failed login attempts allowed from a single client
+  # IP address before the brute-force lockout window is triggered.
+  # Valid range: 1 - 100.
+  # Default: 5
   max_login_attempts: 5
+
+  # Duration for which a client IP address remains locked out after exceeding
+  # max_login_attempts. During lockout, all login attempts from this IP return 429.
+  # Valid units: "s", "m", "h" (e.g. "15m", "1h").
+  # Default: "15m"
   lockout: "15m"
 
-# Storage paths and physical capacity caps
+# ------------------------------------------------------------------------------
+# 3. Storage Hierarchy & Physical Capacity Limits
+# ------------------------------------------------------------------------------
 storage:
+  # Absolute base directory for all Tarsier persistent state on disk.
+  # Contains:
+  #   - config.db:  SQLite store for alert rules, offsets, sessions, container events.
+  #   - metrics.db: SQLite store for metric series and downsampled rollups (WITHOUT ROWID).
+  #   - logs/:      Append-only 64 KB Zstd compressed chunk files (.chunk) and sparse indices (.idx).
+  # Default: "/data"
   path: "/data"
+
+  # Physical storage ceiling for compressed log chunks on disk.
+  # Supports SI and IEC units: "1GiB", "3GiB", "500MiB", "10GB".
+  # When log chunk storage exceeds this cap, an emergency background sweep purges the oldest
+  # .chunk and .idx files down to 90% of this limit (hysteresis) to prevent disk exhaustion.
+  # Default: "3GiB"
   logs_max_size: "3GiB"
+
+  # Physical size cap for the metrics SQLite database ('metrics.db').
+  # Supports SI and IEC units: "128MiB", "256MiB", "1GiB".
+  # Default: "256MiB"
   metrics_max_size: "256MiB"
 
-# Data retention horizons
+# ------------------------------------------------------------------------------
+# 4. Data Retention Horizons
+# ------------------------------------------------------------------------------
 retention:
+  # Retention duration for compressed log chunks. Logs older than this horizon
+  # are unlinked during the scheduled daily cleanup (O(1) filesystem file deletion).
+  # Valid units: "h", "d" (e.g. "7d", "14d", "30d").
+  # Default: "7d"
   logs: "7d"
+
+  # Retention horizon for raw, unaggregated 10-second metric samples in 'metrics.db'.
+  # Kept short to prevent database ballooning; older data is downsampled into rollups.
+  # Default: "24h"
   metrics_raw: "24h"
+
+  # Retention horizon for 1-minute downsampled metric rollups (sample_1m).
+  # Default: "7d"
   metrics_1m: "7d"
+
+  # Retention horizon for 5-minute downsampled metric rollups (sample_5m).
+  # Default: "30d"
   metrics_5m: "30d"
+
+  # Retention horizon for daily peak/average rollups (sample_1d) for long-term capacity planning.
+  # Default: "90d"
   metrics_1d: "90d"
 
-# Host metrics collection (/proc, /sys, statfs)
+# ------------------------------------------------------------------------------
+# 5. Host Telemetry Collection (Linux /proc, /sys, statfs)
+# ------------------------------------------------------------------------------
 host:
+  # Enable or disable host metrics collection (CPU, Memory, Storage, Network I/O).
+  # Default: true
   enabled: true
+
+  # Polling frequency for sampling host system metrics.
+  # Default: "10s"
   interval: "10s"
-  disks: [] # Empty = auto-discover physical mount points
+
+  # Explicit list of physical filesystem mount points to monitor for disk space and I/O.
+  # If left empty ([]), Tarsier automatically discovers non-pseudo physical mounts via /proc/mounts.
+  # Example: ["/", "/mnt/data", "/data"]
+  # Default: []
+  disks: []
+
+  # Filesystem types to ignore during automatic mount discovery.
+  # Default: ["tmpfs", "overlay", "squashfs", "devtmpfs"]
   disk_exclude_fs: ["tmpfs", "overlay", "squashfs", "devtmpfs"]
 
-# Docker container monitoring via read-only Unix socket
+# ------------------------------------------------------------------------------
+# 6. Docker Container Discovery & Lifecycle Monitoring
+# ------------------------------------------------------------------------------
 docker:
+  # Enable or disable Docker container monitoring via Unix domain socket.
+  # Default: true
   enabled: true
+
+  # Path to Docker Engine API Unix domain socket.
+  # Default: "/var/run/docker.sock"
   socket: "/var/run/docker.sock"
+
+  # Polling frequency for streaming container CPU, memory, and network stats.
+  # Default: "10s"
   stats_interval: "10s"
+
+  # Enable streaming and indexing container stdout/stderr log output.
+  # Default: true
   collect_logs: true
+
+  # Enable streaming container CPU %, memory usage, and network I/O metrics.
+  # Default: true
   collect_metrics: true
-  include: [] # Empty = all containers
+
+  # Glob filter patterns for container names to include.
+  # Empty list ([]) includes all discovered containers.
+  # Example: ["prod-*", "web", "api-*"]
+  # Default: []
+  include: []
+
+  # Glob filter patterns for container names to exclude from monitoring.
+  # Useful to prevent monitoring Tarsier itself or temporary worker runners.
+  # Example: ["tarsier", "*-test", "runner-*"]
+  # Default: ["tarsier"]
   exclude: ["tarsier"]
 
-# Host log files and detection engine settings
+# ------------------------------------------------------------------------------
+# 7. Host Log Files & Detection Engine Settings
+# ------------------------------------------------------------------------------
 logs:
+  # Fallback timezone assumed when parsing unstructured log timestamps that lack
+  # an explicit UTC offset or timezone designation.
+  # Default: "UTC"
   default_timezone: "UTC"
+
   detect:
+    # Maximum number of initial bytes scanned from each log line to detect
+    # structured formats (JSON, logfmt, Syslog, Apache/Nginx CLF).
+    # Must be between 64 and 8192 bytes.
+    # Default: 4096
     max_scan_bytes: 4096
+
+    # Enable zero-allocation regex-free keyword heuristics to infer log levels
+    # (DEBUG, INFO, WARN, ERROR, FATAL) from unstructured text lines.
+    # Default: true
     keyword_levels: true
+
+    # Enable confidence hints in log search API output (e.g. '~' for inferred timestamps,
+    # dashed badges for inferred severity levels).
+    # Default: true
     hints: true
+
+  # Explicit host log files to tail, index, and rotate-track from the host filesystem.
+  # Supports standard shell globs. When running inside Docker, ensure host directories
+  # are mounted (e.g., -v /var/log:/host/var/log:ro).
+  # Default: syslog and nginx access log examples
   files:
     - name: "host-syslog"
       path: "/host/var/log/syslog"
     - name: "nginx-access"
       path: "/host/var/log/nginx/access.log"
 
-# Outbound notification channels for alerts and digest reports
+# ------------------------------------------------------------------------------
+# 8. Outbound Notification Channels (Alerts & Reports)
+# ------------------------------------------------------------------------------
 notifiers:
+  # SMTP email delivery for alerts and pre-cleanup digest reports.
   email:
-    enabled: false
-    smtp_host: "smtp.example.com"
-    smtp_port: 587
-    security: "starttls" # none | starttls | tls
-    username: "alerts@example.com"
-    password: "${SMTP_PASSWORD:-}"
-    from: "Tarsier <alerts@example.com>"
-    to: ["admin@example.com"]
+    # Enable or disable email notifications.
+    # Default: false (or via SMTP_ENABLED)
+    enabled: ${SMTP_ENABLED:-false}
 
+    # Outbound SMTP server hostname or IP address.
+    smtp_host: "${SMTP_HOST:-smtp.example.com}"
+
+    # Outbound SMTP port (typically 587 for STARTTLS, 465 for TLS, 25 for plaintext).
+    smtp_port: ${SMTP_PORT:-587}
+
+    # Transport security mechanism.
+    # Allowed values: "none", "starttls", "tls".
+    # Default: "starttls"
+    security: "${SMTP_SECURITY:-starttls}"
+
+    # SMTP authentication credentials.
+    # Configured via environment variable substitution.
+    username: "${SMTP_USER:-alerts@example.com}"
+    password: "${SMTP_PASSWORD:-}"
+
+    # RFC 5322 formatted sender address.
+    from: "${SMTP_FROM:-Tarsier <alerts@example.com>}"
+
+    # List of recipient email addresses.
+    to: ["${SMTP_TO:-admin@example.com}"]
+
+  # Discord webhook delivery for rich embed alerts and Markdown digest summaries.
   discord:
+    # Enable or disable Discord notifications.
+    # Default: false
     enabled: false
+
+    # Full Discord incoming webhook URL.
+    # Supply via environment variable substitution to avoid committing webhooks to git.
     webhook_url: "${DISCORD_WEBHOOK_URL:-}"
+
+    # User or role mention prepended to alert messages.
+    # Examples: "@here", "@everyone", "<@&123456789012345678>" (role ID), or "" (none).
     mention: "@here"
 
-# Data retention cleanup schedule and digest reports
+# ------------------------------------------------------------------------------
+# 9. Retention Cleanup Schedule, Compaction & Digest Reports
+# ------------------------------------------------------------------------------
 cleanup:
-  schedule: "0 3 * * *" # Daily at 03:00 UTC
+  # Standard 5-field cron expression for when the automated maintenance worker runs.
+  # (Minute Hour DayOfMonth Month DayOfWeek).
+  # Runs: Expired log chunk unlinks, chunked metrics.db batch pruning, SQLite WAL checkpoint,
+  # PRAGMA incremental_vacuum, PRAGMA optimize, and pre-cleanup digest reporting.
+  # Default: "0 3 * * *" (Daily at 03:00 UTC)
+  schedule: "0 3 * * *"
+
+  # Number of expired rows deleted per transaction batch in 'metrics.db'.
+  # Bounded chunking prevents write lock contention with the metrics single-writer queue.
+  # Valid range: 100 - 50000.
+  # Default: 5000
   batch_size: 5000
+
+  # Rest pause duration between consecutive deletion batches to yield DB locks.
+  # Default: "50ms"
   batch_pause: "50ms"
+
   report:
+    # Enable generation of pre-cleanup digest reports summarizing purged data,
+    # normalized error patterns, container events, and peak host metrics.
+    # Default: true
     enabled: true
+
+    # Notification channels to receive the digest report.
+    # Options: "discord", "email" (or both).
+    # Default: ["discord", "email"]
     channels: ["discord", "email"]
+
+    # Maximum delivery attempts for the pre-cleanup report before handling failure.
+    # Default: 2
     min_attempts: 2
+
+    # Delay between report delivery retries upon network or notifier failure.
+    # Default: "10m"
     retry_delay: "10m"
-    on_failure: "proceed" # proceed | block
+
+    # Action to take if report delivery fails after min_attempts.
+    # Allowed values:
+    #   - "proceed": Delete expired retention data anyway.
+    #   - "block": Abort data deletion for this cycle to preserve audit trail.
+    # Default: "proceed"
+    on_failure: "proceed"
+
+    # Maximum count of aggregated normalized error patterns included in the report.
+    # Dynamic values like UUIDs, IPs, and timestamps are normalized before grouping.
+    # Default: 20
     top_patterns: 20
+
+    # Number of raw exemplar log lines shown for each top error pattern.
+    # Default: 2
     sample_lines_per_pattern: 2
-    format: "markdown" # markdown | html
+
+    # Delivery format for the digest report.
+    # Allowed values: "markdown" (ideal for Discord), "html" (for email).
+    # Default: "markdown"
+    format: "markdown"
+
+    # Optional path to a custom Go text/template file overriding the default report.
+    # Leave empty ("") to use the embedded built-in template.
     template: ""
+
+    # Maximum size of attached report payload (for email attachments).
+    # Default: "8MiB"
     max_attachment: "8MiB"
 
-# In-memory ring buffer sizing and API query cache limits
+# ------------------------------------------------------------------------------
+# 10. In-Memory Ring Buffer & API Query Caching
+# ------------------------------------------------------------------------------
 cache:
+  # Maximum number of distinct metric and log sources tracked in the in-memory ring buffer.
+  # Enforces hard upper bound on memory consumption (60-120 MB RSS target).
+  # Valid range: 10 - 5000.
+  # Default: 500
   max_sources: 500
+
+  # Number of recent log lines retained in hot memory per source for instant tailing.
+  # Valid range: 50 - 1000.
+  # Default: 300
   log_tail_lines: 300
+
+  # Cache TTL for high-level system vitals returned by the overview API endpoint.
+  # Default: "3s"
   overview_ttl: "3s"
+
+  # Cache TTL for repeated complex log/metric range queries.
+  # Default: "3s"
   query_ttl: "3s"
 
-# Outbound periodic health check ping (e.g. Healthchecks.io)
+# ------------------------------------------------------------------------------
+# 11. External Heartbeat Ping (Uptime Monitoring)
+# ------------------------------------------------------------------------------
 heartbeat:
+  # Enable outbound periodic HTTP GET heartbeat pings to an external monitoring service
+  # (e.g., Healthchecks.io, Better Uptime, Uptime Kuma, Cronitor).
+  # Default: false
   enabled: false
+
+  # External ping URL. Tarsier appends user-agent with version metadata.
+  # Example: "https://hc-ping.com/12345678-1234-1234-1234-123456789abc"
   url: "${HEARTBEAT_URL:-https://hc-ping.com/example-uuid}"
+
+  # Interval between consecutive heartbeat pings.
+  # Default: "5m"
   interval: "5m"
+
+  # HTTP request timeout for the ping.
+  # Default: "10s"
   timeout: "10s"
