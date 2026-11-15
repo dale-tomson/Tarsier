@@ -107,11 +107,11 @@ Tarsier is engineered from the ground up for strict resource efficiency on singl
 
 ### Local Testing & Development
 
-The repository includes a ready-to-run `docker-compose.yml` and `env.example` pre-configured for instant local testing against containers already running on your machine:
+The repository includes a ready-to-run `docker-compose.yml` and `.env.example` pre-configured for instant local testing against containers already running on your machine:
 
 1. **Set up local environment file:**
    ```bash
-   cp env.example .env
+   cp .env.example .env
    ```
    *(Pre-configured with local dev credentials: username `admin`, password `admin`)*
 
@@ -141,9 +141,9 @@ For production single-server deployments:
    *(Note: Remember to escape `$` as `$$` when placing in `docker-compose.yml` or `.env` for Compose interpolation).*
 
 2. **Configure `.env` or `docker-compose.yml`:**
-   Copy `env.example` to `.env` and set your production values:
+   Copy `.env.example` to `.env` and set your production values:
    ```bash
-   cp env.example .env
+   cp .env.example .env
    ```
    Or use the production compose definition:
 ```yaml

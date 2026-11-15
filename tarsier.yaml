@@ -1,0 +1,106 @@
+# ==============================================================================
+# Tarsier Local Configuration
+# ==============================================================================
+# Tuned for local development and testing against local Docker containers.
+# See 'tarsier.example.yaml' for detailed documentation of all available settings.
+# ==============================================================================
+
+# HTTP API & Web Dashboard
+server:
+  listen: ":8080"
+  base_url: "${TARSIER_BASE_URL:-http://localhost:8080}"
+  timezone: "${TARSIER_TIMEZONE:-UTC}"
+
+# Authentication & Session Security
+auth:
+  session_ttl: "24h"
+  max_login_attempts: 5
+  lockout: "15m"
+
+# Storage paths & physical limits
+storage:
+  path: "/data"
+  logs_max_size: "1GiB"
+  metrics_max_size: "128MiB"
+
+# Data retention horizons
+retention:
+  logs: "7d"
+  metrics_raw: "24h"
+  metrics_1m: "7d"
+  metrics_5m: "30d"
+  metrics_1d: "90d"
+
+# Host metrics collection
+host:
+  enabled: true
+  interval: "10s"
+  disks: []
+  disk_exclude_fs: ["tmpfs", "overlay", "squashfs", "devtmpfs"]
+
+# Docker container discovery & stats streaming
+docker:
+  enabled: true
+  socket: "/var/run/docker.sock"
+  stats_interval: "10s"
+  collect_logs: true
+  collect_metrics: true
+  include: []
+  exclude: ["tarsier"]
+
+# Log detection heuristics
+logs:
+  default_timezone: "UTC"
+  detect:
+    max_scan_bytes: 4096
+    keyword_levels: true
+    hints: true
+  files: []
+
+# Outbound notification channels (Email & Discord)
+notifiers:
+  email:
+    enabled: ${SMTP_ENABLED:-false}
+    smtp_host: "${SMTP_HOST:-smtp.example.com}"
+    smtp_port: ${SMTP_PORT:-587}
+    security: "${SMTP_SECURITY:-starttls}"
+    username: "${SMTP_USER:-alerts@example.com}"
+    password: "${SMTP_PASSWORD:-}"
+    from: "${SMTP_FROM:-Tarsier <alerts@example.com>}"
+    to: ["${SMTP_TO:-admin@example.com}"]
+
+  discord:
+    enabled: ${DISCORD_ENABLED:-false}
+    webhook_url: "${DISCORD_WEBHOOK_URL:-}"
+    mention: "@here"
+
+# Compaction, retention cleanup & digest reports
+cleanup:
+  schedule: "0 3 * * *"
+  batch_size: 5000
+  batch_pause: "50ms"
+  report:
+    enabled: true
+    channels: ["discord", "email"]
+    min_attempts: 2
+    retry_delay: "10m"
+    on_failure: "proceed"
+    top_patterns: 20
+    sample_lines_per_pattern: 2
+    format: "markdown"
+    template: ""
+    max_attachment: "8MiB"
+
+# In-memory ring buffer sizing & query caching
+cache:
+  max_sources: 500
+  log_tail_lines: 300
+  overview_ttl: "3s"
+  query_ttl: "3s"
+
+# Outbound heartbeat ping
+heartbeat:
+  enabled: false
+  url: "${HEARTBEAT_URL:-https://hc-ping.com/example-uuid}"
+  interval: "5m"
+  timeout: "10s"

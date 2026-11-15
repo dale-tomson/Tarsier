@@ -214,30 +214,30 @@ notifiers:
   # SMTP email delivery for alerts and pre-cleanup digest reports.
   email:
     # Enable or disable email notifications.
-    # Default: false
-    enabled: false
+    # Default: false (or via SMTP_ENABLED)
+    enabled: ${SMTP_ENABLED:-false}
 
     # Outbound SMTP server hostname or IP address.
-    smtp_host: "smtp.example.com"
+    smtp_host: "${SMTP_HOST:-smtp.example.com}"
 
     # Outbound SMTP port (typically 587 for STARTTLS, 465 for TLS, 25 for plaintext).
-    smtp_port: 587
+    smtp_port: ${SMTP_PORT:-587}
 
     # Transport security mechanism.
     # Allowed values: "none", "starttls", "tls".
     # Default: "starttls"
-    security: "starttls"
+    security: "${SMTP_SECURITY:-starttls}"
 
     # SMTP authentication credentials.
-    # Passwords should be supplied via environment variable substitution.
-    username: "alerts@example.com"
+    # Configured via environment variable substitution.
+    username: "${SMTP_USER:-alerts@example.com}"
     password: "${SMTP_PASSWORD:-}"
 
     # RFC 5322 formatted sender address.
-    from: "Tarsier <alerts@example.com>"
+    from: "${SMTP_FROM:-Tarsier <alerts@example.com>}"
 
     # List of recipient email addresses.
-    to: ["admin@example.com"]
+    to: ["${SMTP_TO:-admin@example.com}"]
 
   # Discord webhook delivery for rich embed alerts and Markdown digest summaries.
   discord:

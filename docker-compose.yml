@@ -22,15 +22,30 @@ services:
     environment:
       # Fallback defaults if not set in .env
       TARSIER_CONFIG: ${TARSIER_CONFIG:-/config/tarsier.yaml}
+      TARSIER_ADMIN_USER: ${TARSIER_ADMIN_USER:-admin}
+      TARSIER_ADMIN_PASSWORD_HASH: ${TARSIER_ADMIN_PASSWORD_HASH:-$$2a$$10$$vI8aWBnW3fID.ZQ4/zo1G.q1lRps.9cGLcZEiGDMVr5yUP1KUOYTa}
+      TARSIER_SESSION_SECRET: ${TARSIER_SESSION_SECRET:-local-dev-session-secret-must-be-at-least-32-bytes-long}
       GOMEMLIMIT: ${GOMEMLIMIT:-200MiB}
       HOST_PROC: ${HOST_PROC:-/proc}
       HOST_SYS: ${HOST_SYS:-/sys}
       HOST_ROOT: ${HOST_ROOT:-/}
+
+      # Outbound Notification & Alert Channels
+      SMTP_ENABLED: ${SMTP_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-smtp.example.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      SMTP_USER: ${SMTP_USER:-alerts@example.com}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-Tarsier <alerts@example.com>}
+      SMTP_TO: ${SMTP_TO:-admin@example.com}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      HEARTBEAT_URL: ${HEARTBEAT_URL:-}
     ports:
       - "${TARSIER_PORT:-8080}:8080"
     volumes:
-      # Mount configuration file (defaults to ./tarsier.example.yaml or custom file from .env)
-      - ${TARSIER_CONFIG_FILE:-./tarsier.example.yaml}:/config/tarsier.yaml:ro
+      # Mount configuration file (defaults to ./tarsier.yaml or custom file from .env)
+      - ${TARSIER_CONFIG_FILE:-./tarsier.yaml}:/config/tarsier.yaml:ro
 
       # Persistent storage volume for SQLite databases (config.db, metrics.db)
       # and append-only compressed log chunks (/data/logs/)

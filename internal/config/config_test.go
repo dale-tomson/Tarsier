@@ -118,6 +118,24 @@ func TestLoadConfig_Table(t *testing.T) {
 		}
 	})
 
+	t.Run("load local config file", func(t *testing.T) {
+		cfgPath := filepath.Join("..", "..", "tarsier.yaml")
+		cfg, err := Load(cfgPath)
+		if err != nil {
+			t.Fatalf("failed to load tarsier.yaml: %v", err)
+		}
+
+		if cfg.Server.Listen != ":8080" {
+			t.Errorf("expected listen :8080, got %s", cfg.Server.Listen)
+		}
+		if cfg.Server.BaseURL != "http://localhost:8080" {
+			t.Errorf("expected base_url http://localhost:8080, got %s", cfg.Server.BaseURL)
+		}
+		if cfg.Storage.Path != "/data" {
+			t.Errorf("expected storage path /data, got %s", cfg.Storage.Path)
+		}
+	})
+
 	t.Run("minimal yaml populates defaults", func(t *testing.T) {
 		minimalYAML := []byte(`
 server: {}
