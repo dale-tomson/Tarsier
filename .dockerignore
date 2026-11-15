@@ -1,0 +1,48 @@
+# ==============================================================================
+# Tarsier Docker Build Context Exclusions
+# ==============================================================================
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Environment files and credentials (never bake secrets into Docker images)
+.env
+.env.*
+!.env.example
+
+# Runtime databases, persistent volumes, and log storage
+data/
+*.db
+*.db-shm
+*.db-wal
+*.chunk
+*.idx
+*.wal
+*.log
+
+# Local binaries, compiled test fixtures, and coverage profiles
+bin/
+*.exe
+*.test
+*.out
+*.prof
+
+# Development plans, agent scratchpads, and design documents
+plans/
+plan.md
+Agents.md
+AGENTS.md
+
+# Editor and OS metadata
+.idea/
+.vscode/
+.gemini/
+.claude/
+.DS_Store
+Thumbs.db
+
+# Deployment and orchestration files not needed during binary compilation
+docker-compose*.yml
+Makefile

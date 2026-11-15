@@ -91,15 +91,15 @@ Tarsier is engineered from the ground up for strict resource efficiency on singl
 ### 7. Embedded Web UI & Settings Dashboard
 * Single-binary delivery via Go 1.27 `embed.FS`.
 * Built with `petite-vue` (IIFE, ~6 KB), `Pico.css` (v2), and `uPlot`.
-* Total embedded gzipped UI assets strictly under **`< 100 KB`**.
+* Total embedded gzipped UI assets strictly under **`< 100 KB`** (`~66 KB` typical).
 * Auto light/dark theme synchronization with OS preferences.
-* Interactive dashboards:
-  * **Overview:** High-level system vitals, active firing alerts, real-time charts, container status grid, and cleanup failure warnings.
-  * **Host:** Synchronized uPlot panels for CPU, Load, RAM/Swap, Network, Disk I/O, and 14-day history table.
-  * **Containers:** Sortable container table, search bar, state filters, and detailed metric modals.
-  * **Logs:** Live tail polling, regex search, level filters, log stream filtering, and `±20` line surrounding context viewer.
-  * **Alerts:** Active firing alerts, rule manager, rule builder modal with live preview, and notification history.
-  * **Settings:** Physical storage breakdown progress bars, retention policies, cleanup history, manual dry-run trigger, custom template live preview, and hot config reload.
+* Interactive views:
+  * **Overview:** High-level system vitals, active firing alerts, real-time CPU & RAM charts, active container grid with instant health indicators, and cleanup failure warnings.
+  * **Host:** Compact 2-row metric card layout showing detected CPU core count and physical filesystem capacity, paired with synchronized uPlot panels (CPU, Load, RAM/Swap, Network, Disk I/O) and a 14-day history rollup table.
+  * **Containers:** Streamlined 4-column layout (`Container Name` with green/red/grey hollow health indicator circle and image subtitle, `Stats` with CPU % / 100%, RAM used / limit, and yellow `Restarts: N` badge, `NET I/O` throughput rates, and `Actions`), running/exited state tabs, container name filter, and a dedicated `#container-detail?container=[name]` page with live telemetry, synchronized uPlot charts, 14-day history, and lifecycle event audit log.
+  * **Logs:** Live tail streaming, regex & substring search, level filter pills (`DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL`), stream selection (`stdout` / `stderr`), and `±20` line surrounding context viewer.
+  * **Alerts:** Active firing alerts, rule manager, rule builder dialog with live telemetry preview against real targets, and notification history.
+  * **Settings:** Physical storage breakdown progress bars, retention policies, cleanup history, manual dry-run trigger, custom template live preview, and hot config reload without restart.
 
 ---
 
@@ -113,19 +113,26 @@ The repository includes a ready-to-run `docker-compose.yml` and `.env.example` p
    ```bash
    cp .env.example .env
    ```
-   *(Pre-configured with local dev credentials: username `admin`, password `admin`)*
+   *(Pre-configured with local dev credentials: username `admin`, password `admin`, and port `8080`)*
 
-2. **Build and start Tarsier:**
+2. **(Optional) Customize exposed port or settings:**
+   Edit `.env` to change the host port (e.g. `TARSIER_PORT=2090` or leave as `8080`).
+
+3. **Build and start Tarsier:**
    ```bash
    docker compose up --build -d
    ```
+   *Note: A dedicated [`.dockerignore`](.dockerignore) is included to keep build contexts minimal (< 1 MB) and ensure local secrets (`.env*`), persistent data (`data/`), and build binaries are never transferred to the Docker daemon or baked into the image.*
 
-3. **Access Dashboard:**
-   Open [http://localhost:8080](http://localhost:8080) and log in with:
+4. **Access Dashboard:**
+   Open [http://localhost:8080](http://localhost:8080) (or your configured `TARSIER_PORT`) and log in with:
    - **Username:** `admin`
    - **Password:** `admin`
 
    Tarsier will automatically discover and monitor containers running on your local Docker daemon.
+
+> [!NOTE]
+> **macOS & Windows (Docker Desktop / OrbStack / Colima):** Container metrics and logs work out of the box via `/var/run/docker.sock`. Bare-metal Linux host telemetry (`/proc` and `/sys`) is commented out by default in `docker-compose.yml` so non-Linux machines can run seamlessly without mounting missing host paths. For native Linux VPS / bare-metal deployments, simply uncomment the host mounts in `docker-compose.yml` to monitor physical CPU, memory, and disk health.
 
 ---
 
@@ -351,6 +358,23 @@ CGO_ENABLED=0 go build -ldflags="-s -w" -o tarsier ./cmd/tarsier
 # Run binary directly
 ./tarsier -config ./tarsier.yaml
 ```
+
+### Building the Docker Container Image
+
+You can build the minimal distroless image locally using Docker or Docker Buildx:
+
+```bash
+# Build local multi-arch capable distroless image
+docker build -t tarsier:local .
+
+# Or build with Buildx for a specific target architecture
+docker buildx build --platform linux/amd64,linux/arm64 -t tarsier:local .
+```
+
+The build uses a two-stage `Dockerfile`:
+1. **Builder Stage:** Compiles the static binary (`CGO_ENABLED=0`, `-tags netgo`) inside `golang:alpine`.
+2. **Runtime Stage:** Produces a minimal image based on `gcr.io/distroless/static-debian12:nonroot` with only the static binary, SSL root certificates, and timezone data. Memory limit is pre-set via `GOMEMLIMIT=200MiB`.
+3. **Build Context Filtering:** The [`.dockerignore`](.dockerignore) file excludes version control history (`.git`), local databases (`data/`), `.env` secrets, and temp files, keeping the build context under 1 MB.
 
 ---
 
