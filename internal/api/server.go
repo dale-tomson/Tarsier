@@ -16,6 +16,7 @@ import (
 
 	"github.com/dale-tomson/Tarsier/internal/alert"
 	"github.com/dale-tomson/Tarsier/internal/auth"
+	"github.com/dale-tomson/Tarsier/internal/cleanup"
 	"github.com/dale-tomson/Tarsier/internal/config"
 	"github.com/dale-tomson/Tarsier/internal/db"
 	"github.com/dale-tomson/Tarsier/internal/logs"
@@ -41,6 +42,11 @@ type ServerConfig struct {
 	StateMachine    *alert.StateMachine
 	Dispatcher      *alert.Dispatcher
 	Heartbeat       *alert.HeartbeatWorker
+	CleanupManager  *cleanup.CleanupManager
+	ReportBuilder   *cleanup.ReportBuilder
+	Deliverer       *cleanup.ReportDeliverer
+	Maintainer      *cleanup.DatabaseMaintainer
+	ConfigPath      string
 	Version         string
 }
 
@@ -52,14 +58,16 @@ func (defaultServerClock) Now() time.Time {
 
 // SystemHealthResponse describes system operational state and memory metrics.
 type SystemHealthResponse struct {
-	Status        string                 `json:"status"`
-	Version       string                 `json:"version"`
-	GoVersion     string                 `json:"go_version"`
-	UptimeSeconds int64                  `json:"uptime_seconds"`
-	StartedAt     string                 `json:"started_at"`
-	Databases     map[string]DBHealth    `json:"databases"`
-	Memory        MemoryHealth           `json:"memory"`
-	Heartbeat     *alert.HeartbeatStatus `json:"heartbeat,omitempty"`
+	Status         string                 `json:"status"`
+	Version        string                 `json:"version"`
+	GoVersion      string                 `json:"go_version"`
+	UptimeSeconds  int64                  `json:"uptime_seconds"`
+	StartedAt      string                 `json:"started_at"`
+	Databases      map[string]DBHealth    `json:"databases"`
+	Memory         MemoryHealth           `json:"memory"`
+	Heartbeat      *alert.HeartbeatStatus `json:"heartbeat,omitempty"`
+	Storage        *StorageHealth         `json:"storage,omitempty"`
+	CleanupWarning *CleanupWarningStatus  `json:"cleanup_warning,omitempty"`
 }
 
 // DBHealth describes SQLite database file status.
@@ -96,6 +104,11 @@ type Server struct {
 	stateMachine        *alert.StateMachine
 	dispatcher          *alert.Dispatcher
 	heartbeat           *alert.HeartbeatWorker
+	cleanupManager      *cleanup.CleanupManager
+	reportBuilder       *cleanup.ReportBuilder
+	deliverer           *cleanup.ReportDeliverer
+	maintainer          *cleanup.DatabaseMaintainer
+	configPath          string
 	authHandlers        *auth.Handlers
 	assets              *AssetsHandler
 	router              *chi.Mux
@@ -153,6 +166,11 @@ func NewServer(sc ServerConfig) (*Server, error) {
 		stateMachine:        sc.StateMachine,
 		dispatcher:          sc.Dispatcher,
 		heartbeat:           sc.Heartbeat,
+		cleanupManager:      sc.CleanupManager,
+		reportBuilder:       sc.ReportBuilder,
+		deliverer:           sc.Deliverer,
+		maintainer:          sc.Maintainer,
+		configPath:          sc.ConfigPath,
 		authHandlers:        authHandlers,
 		assets:              assets,
 		version:             version,
@@ -217,6 +235,14 @@ func (s *Server) setupRoutes() {
 				authGroup.Post("/alerts/rules/import", s.handleImportRules)
 				authGroup.Get("/alerts/history", s.handleAlertHistory)
 				authGroup.Post("/alerts/test", s.handleTestNotification)
+
+				// Cleanup & Retention
+				authGroup.Get("/system/cleanup/history", s.handleCleanupHistory)
+				authGroup.Get("/system/cleanup/{id}/report", s.handleCleanupReport)
+				authGroup.Post("/system/cleanup/run", s.handleCleanupRun)
+				authGroup.Get("/system/cleanup/template", s.handleCleanupTemplateDownload)
+				authGroup.Post("/system/cleanup/preview", s.handleCleanupPreview)
+				authGroup.Post("/system/reload", s.handleSystemReload)
 			})
 		}
 	})
@@ -268,6 +294,8 @@ func (s *Server) handleSystemHealth(w http.ResponseWriter, r *http.Request) {
 		hbStatus = &st
 	}
 
+	storage, warning := s.inspectStorage(r.Context())
+
 	resp := SystemHealthResponse{
 		Status:        "ok",
 		Version:       s.version,
@@ -284,7 +312,9 @@ func (s *Server) handleSystemHealth(w http.ResponseWriter, r *http.Request) {
 			SysBytes:        m.Sys,
 			NumGC:           m.NumGC,
 		},
-		Heartbeat: hbStatus,
+		Heartbeat:      hbStatus,
+		Storage:        storage,
+		CleanupWarning: warning,
 	}
 
 	auth.WriteJSON(w, http.StatusOK, resp)
