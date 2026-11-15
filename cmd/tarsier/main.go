@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/dale-tomson/Tarsier/internal/config"
 	"github.com/dale-tomson/Tarsier/internal/db"
 	"github.com/dale-tomson/Tarsier/internal/docker"
+	"github.com/dale-tomson/Tarsier/internal/logs"
 	"github.com/dale-tomson/Tarsier/internal/metrics"
 	"github.com/dale-tomson/Tarsier/internal/model"
 )
@@ -242,6 +244,16 @@ func main() {
 		}
 	}
 
+	// Initialize in-memory hot log tail cache and unified log query engine
+	tailCache := logs.NewTailCache(cfg.Cache.MaxSources, cfg.Cache.LogTailLines)
+	logEngine, err := logs.NewLogQueryEngine(logs.LogQueryEngineConfig{
+		BaseDir:   filepath.Join(cfg.Storage.Path, "logs"),
+		TailCache: tailCache,
+	})
+	if err != nil {
+		log.Fatalf("Fatal: failed to initialize log query engine: %v", err)
+	}
+
 	// Initialize HTTP API and static asset server
 	server, err := api.NewServer(api.ServerConfig{
 		Config:          cfg,
@@ -250,6 +262,8 @@ func main() {
 		HotCache:        ingestor.Cache(),
 		Rollup:          rollup,
 		DockerConnected: dockerConnectedFunc,
+		LogEngine:       logEngine,
+		TailCache:       tailCache,
 		Auth:            authenticator,
 		Sessions:        sessions,
 		Limiter:         limiter,

@@ -17,19 +17,22 @@ import (
 	"github.com/dale-tomson/Tarsier/internal/auth"
 	"github.com/dale-tomson/Tarsier/internal/config"
 	"github.com/dale-tomson/Tarsier/internal/db"
+	"github.com/dale-tomson/Tarsier/internal/logs"
 	"github.com/dale-tomson/Tarsier/internal/metrics"
 )
 
 // ServerConfig provides dependencies for the API and static server.
 type ServerConfig struct {
-	Config    *config.Config
-	ConfigDB  *db.Handle
-	MetricsDB *db.Handle
-	HotCache  *metrics.HotCache
-	Rollup    *metrics.RollupEngine
-	Clock     metrics.Clock
-	Auth      *auth.Authenticator
-	Sessions  *auth.SessionStore
+	Config          *config.Config
+	ConfigDB        *db.Handle
+	MetricsDB       *db.Handle
+	HotCache        *metrics.HotCache
+	Rollup          *metrics.RollupEngine
+	LogEngine       *logs.LogQueryEngine
+	TailCache       *logs.TailCache
+	Clock           metrics.Clock
+	Auth            *auth.Authenticator
+	Sessions        *auth.SessionStore
 	Limiter         *auth.RateLimiter
 	DockerConnected func() bool
 	Version         string
@@ -71,9 +74,11 @@ type Server struct {
 	cfg          *config.Config
 	configDB     *db.Handle
 	metricsDB    *db.Handle
-	hotCache     *metrics.HotCache
-	rollup       *metrics.RollupEngine
-	clock        metrics.Clock
+	hotCache            *metrics.HotCache
+	rollup              *metrics.RollupEngine
+	logEngine           *logs.LogQueryEngine
+	tailCache           *logs.TailCache
+	clock               metrics.Clock
 	queryCache   *QueryCache
 	auth         *auth.Authenticator
 	sessions     *auth.SessionStore
@@ -121,9 +126,11 @@ func NewServer(sc ServerConfig) (*Server, error) {
 		cfg:          sc.Config,
 		configDB:     sc.ConfigDB,
 		metricsDB:    sc.MetricsDB,
-		hotCache:     sc.HotCache,
-		rollup:       sc.Rollup,
-		clock:        clock,
+		hotCache:            sc.HotCache,
+		rollup:              sc.Rollup,
+		logEngine:           sc.LogEngine,
+		tailCache:           sc.TailCache,
+		clock:               clock,
 		queryCache:   queryCache,
 		auth:         sc.Auth,
 		sessions:     sc.Sessions,
@@ -173,6 +180,10 @@ func (s *Server) setupRoutes() {
 
 				authGroup.Get("/containers", s.handleContainersList)
 				authGroup.Get("/containers/{name}", s.handleContainerDetail)
+
+				authGroup.Get("/sources", s.handleSourcesList)
+				authGroup.Get("/logs", s.handleLogsQuery)
+				authGroup.Get("/logs/context", s.handleLogsContext)
 			})
 		}
 	})

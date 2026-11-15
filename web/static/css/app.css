@@ -375,3 +375,117 @@ th.sortable {
 th.sortable:hover {
   color: var(--pico-primary);
 }
+
+/* Log Explorer Styles */
+.badge-fatal {
+  background-color: #7e22ce;
+  color: #ffffff;
+}
+
+.badge-inferred {
+  opacity: 0.72;
+  border: 1px dashed currentColor;
+}
+
+.btn-micro {
+  padding: 0.15rem 0.4rem;
+  font-size: 0.7rem;
+  margin-bottom: 0;
+  display: inline-block;
+  line-height: 1.2;
+}
+
+.log-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.log-controls input,
+.log-controls select,
+.log-controls button {
+  margin-bottom: 0;
+}
+
+.log-info-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--pico-muted-color);
+  margin-bottom: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  background: var(--pico-card-background-color);
+  border-radius: var(--pico-border-radius);
+  border: 1px solid var(--pico-muted-border-color);
+}
+
+.log-viewer {
+  overflow-x: auto;
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+}
+
+.log-table {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  border-collapse: collapse;
+  margin-bottom: 0;
+}
+
+.log-table th {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.75rem;
+  background: var(--pico-table-border-color);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.log-table td {
+  padding: 0.35rem 0.5rem;
+  vertical-align: top;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+.log-row:hover {
+  background-color: rgba(125, 125, 125, 0.08);
+}
+
+.log-msg {
+  font-family: inherit;
+  word-break: break-all;
+  white-space: pre-wrap;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.log-msg-collapsed {
+  max-height: 3.8em;
+  overflow: hidden;
+  position: relative;
+}
+
+.log-stream {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--pico-muted-color);
+}
+
+.log-context-target {
+  background-color: rgba(16, 149, 193, 0.18) !important;
+  font-weight: 600;
+  border-left: 3px solid var(--pico-primary);
+}
+
+mark {
+  background: #fde047;
+  color: #1c1917;
+  padding: 0.05rem 0.2rem;
+  border-radius: 2px;
+  font-weight: bold;
+}
