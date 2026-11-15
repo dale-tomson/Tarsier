@@ -28,24 +28,6 @@ var bufferPool = sync.Pool{
 	},
 }
 
-// LogSink defines an interface for receiving ingested log entries.
-type LogSink interface {
-	PushLog(entry model.LogEntry) bool
-}
-
-// LogChanSink adapts a chan<- model.LogEntry channel into a LogSink.
-type LogChanSink chan<- model.LogEntry
-
-// PushLog pushes a log entry without blocking; returns false if channel is full.
-func (s LogChanSink) PushLog(entry model.LogEntry) bool {
-	select {
-	case s <- entry:
-		return true
-	default:
-		return false
-	}
-}
-
 // EnsureSource registers or retrieves the integer source ID for a container from config.db.
 func EnsureSource(ctx context.Context, configDB *db.Handle, kind, name string) (int64, error) {
 	if configDB == nil {
@@ -334,7 +316,7 @@ type LogManagerConfig struct {
 	Client        *Client
 	Filter        *ContainerFilter
 	ConfigDB      *db.Handle
-	Sink          LogSink
+	Sink          model.LogSink
 	FlushInterval time.Duration // default 3s
 	MaxLineBytes  int           // default 65536
 }
@@ -344,7 +326,7 @@ type DockerLogManager struct {
 	client        *Client
 	filter        *ContainerFilter
 	configDB      *db.Handle
-	sink          LogSink
+	sink          model.LogSink
 	flushInterval time.Duration
 	maxLineBytes  int
 

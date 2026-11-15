@@ -43,7 +43,7 @@ func TestFileTailer_InodeRotationNoDuplicates(t *testing.T) {
 			{Name: "app", Path: logPath},
 		},
 		ConfigDB:      store.Config,
-		Sink:          LogChanSink(logChan),
+		Sink:          model.LogChanSink(logChan),
 		PollInterval:  50 * time.Millisecond,
 		FlushInterval: 100 * time.Millisecond,
 	})
@@ -160,7 +160,7 @@ func TestFileTailer_CopyTruncate(t *testing.T) {
 			{Name: "service", Path: logPath},
 		},
 		ConfigDB:      store.Config,
-		Sink:          LogChanSink(logChan),
+		Sink:          model.LogChanSink(logChan),
 		PollInterval:  50 * time.Millisecond,
 		FlushInterval: 100 * time.Millisecond,
 	})
@@ -236,7 +236,7 @@ func TestFileTailer_GlobDiscoveryAndRemoval(t *testing.T) {
 			{Name: "app", Path: globPattern},
 		},
 		ConfigDB:       store.Config,
-		Sink:           LogChanSink(logChan),
+		Sink:           model.LogChanSink(logChan),
 		PollInterval:   50 * time.Millisecond,
 		RescanInterval: 100 * time.Millisecond,
 	})
@@ -314,7 +314,7 @@ func TestFileTailer_RestartResumeAndPartialLine(t *testing.T) {
 			{Name: "resume", Path: logPath},
 		},
 		ConfigDB:      store.Config,
-		Sink:          LogChanSink(logChan),
+		Sink:          model.LogChanSink(logChan),
 		PollInterval:  50 * time.Millisecond,
 		FlushInterval: 50 * time.Millisecond,
 	})
@@ -348,7 +348,7 @@ func TestFileTailer_RestartResumeAndPartialLine(t *testing.T) {
 			{Name: "resume", Path: logPath},
 		},
 		ConfigDB:      store.Config,
-		Sink:          LogChanSink(logChan),
+		Sink:          model.LogChanSink(logChan),
 		PollInterval:  50 * time.Millisecond,
 		FlushInterval: 50 * time.Millisecond,
 	})
@@ -408,7 +408,7 @@ func TestFileTailer_OversizedLineCap(t *testing.T) {
 			{Name: "oversized", Path: logPath},
 		},
 		ConfigDB:     store.Config,
-		Sink:         LogChanSink(logChan),
+		Sink:         model.LogChanSink(logChan),
 		PollInterval: 50 * time.Millisecond,
 		MaxLineBytes: 65536,
 	})

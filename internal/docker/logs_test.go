@@ -293,7 +293,7 @@ func TestDockerLogFollower_CursorPersistenceAndDeduplication(t *testing.T) {
 	mgr := NewLogManager(LogManagerConfig{
 		Client:        client,
 		ConfigDB:      store.Config,
-		Sink:          LogChanSink(logChan),
+		Sink:          model.LogChanSink(logChan),
 		FlushInterval: 100 * time.Millisecond,
 	})
 
@@ -336,7 +336,7 @@ collectLoop1:
 	mgrRestart := NewLogManager(LogManagerConfig{
 		Client:        client,
 		ConfigDB:      store.Config,
-		Sink:          LogChanSink(logChan),
+		Sink:          model.LogChanSink(logChan),
 		FlushInterval: 100 * time.Millisecond,
 	})
 	mgrRestart.StartContainer(ctx, containerInfo)
