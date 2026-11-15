@@ -107,15 +107,8 @@ func main() {
 		log.Fatalf("Fatal auth configuration error: %v (set TARSIER_ADMIN_PASSWORD_HASH)", err)
 	}
 
-	sessionTTL, err := time.ParseDuration(cfg.Auth.SessionTTL)
-	if err != nil || sessionTTL <= 0 {
-		sessionTTL = 24 * time.Hour
-	}
-
-	lockout, err := time.ParseDuration(cfg.Auth.Lockout)
-	if err != nil || lockout <= 0 {
-		lockout = 15 * time.Minute
-	}
+	sessionTTL := parseDurationOrDefault(cfg.Auth.SessionTTL, 24*time.Hour)
+	lockout := parseDurationOrDefault(cfg.Auth.Lockout, 15*time.Minute)
 
 	sessions, err := auth.NewSessionStore(auth.SessionConfig{
 		ConfigDB: store.Config,
@@ -239,10 +232,7 @@ func main() {
 			eventWatcher := docker.NewEventWatcher(dockerClient, dockerFilter, store.Config)
 			dockerConnectedFunc = eventWatcher.Connected
 
-			statsInterval, durErr := time.ParseDuration(cfg.Docker.StatsInterval)
-			if durErr != nil || statsInterval <= 0 {
-				statsInterval = 10 * time.Second
-			}
+			statsInterval := parseDurationOrDefault(cfg.Docker.StatsInterval, 10*time.Second)
 
 			statsCollector := docker.NewStatsCollector(dockerClient, dockerFilter, ingestor, docker.StatsCollectorOptions{
 				Interval:    statsInterval,
@@ -395,4 +385,12 @@ func main() {
 		log.Printf("HTTP server shutdown warning: %v", err)
 	}
 	log.Printf("Tarsier stopped cleanly")
+}
+
+func parseDurationOrDefault(val string, defaultVal time.Duration) time.Duration {
+	d, err := time.ParseDuration(val)
+	if err != nil || d <= 0 {
+		return defaultVal
+	}
+	return d
 }
