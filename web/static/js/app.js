@@ -1,6 +1,6 @@
 (function() {
 'use strict';
-const VALID_ROUTES = ['overview', 'host', 'containers', 'logs', 'alerts', 'settings'];
+const VALID_ROUTES = ['overview', 'host', 'containers', 'container-detail', 'logs', 'alerts', 'settings'];
 const savedTheme = localStorage.getItem('tarsier-theme') || 'auto';
 applyTheme(savedTheme);
 function applyTheme(theme) {
@@ -11,17 +11,34 @@ document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
 document.documentElement.setAttribute('data-theme', theme);
 }
 }
+function parseHash() {
+const raw = window.location.hash.replace(/^#\/?/, '').trim();
+const qIdx = raw.indexOf('?');
+const path = (qIdx !== -1 ? raw.slice(0, qIdx) : raw).toLowerCase();
+const queryStr = qIdx !== -1 ? raw.slice(qIdx + 1) : '';
+const params = new URLSearchParams(queryStr);
+return {
+route: VALID_ROUTES.includes(path) ? path : 'overview',
+params: params
+};
+}
 function getRouteFromHash() {
-const raw = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
-return VALID_ROUTES.includes(raw) ? raw : 'overview';
+return parseHash().route;
 }
 const toast = window.ToastState ? window.ToastState() : { show: () => {}, dismiss: () => {} };
 const store = window.PetiteVue.reactive({
 route: getRouteFromHash(),
-setRoute(r) {
+routeParams: parseHash().params,
+setRoute(r, params) {
 if (VALID_ROUTES.includes(r)) {
 this.route = r;
-window.location.hash = '#' + r;
+let hash = '#' + r;
+if (params && typeof params === 'object') {
+const q = new URLSearchParams(params).toString();
+if (q) hash += '?' + q;
+}
+window.location.hash = hash;
+this.routeParams = parseHash().params;
 if (r === 'settings' && this.authenticated) {
 this.loadSettings();
 }
@@ -42,7 +59,7 @@ onTimeRangeChange() {
 if (window.hostView && (this.route === 'host' || this.route === 'overview')) {
 window.hostView.refresh();
 }
-if (window.containersView && this.route === 'containers' && window.containersView.detailModalOpen && window.containersView.detailData) {
+if (window.containersView && (this.route === 'container-detail' || (this.route === 'containers' && window.containersView.detailModalOpen)) && window.containersView.detailData) {
 window.containersView.renderDetailCharts(window.containersView.detailData.container.name);
 }
 },
@@ -107,6 +124,14 @@ if (this.route === 'overview') {
 this.onOverviewMounted();
 } else if (this.route === 'settings') {
 this.loadSettings();
+} else if (this.route === 'container-detail') {
+const cName = this.routeParams ? this.routeParams.get('container') : '';
+if (window.containersView && window.containersView.loadDetail) {
+window.containersView.loadDetail(cName);
+}
+} else if (this.route === 'logs') {
+const cName = this.routeParams ? this.routeParams.get('container') : '';
+if (cName) this.selectedLogSource = 'container:' + cName;
 }
 } catch (e) {
 this.authenticated = false;
@@ -145,6 +170,14 @@ if (this.route === 'overview') {
 this.onOverviewMounted();
 } else if (this.route === 'settings') {
 this.loadSettings();
+} else if (this.route === 'container-detail') {
+const cName = this.routeParams ? this.routeParams.get('container') : '';
+if (window.containersView && window.containersView.loadDetail) {
+window.containersView.loadDetail(cName);
+}
+} else if (this.route === 'logs') {
+const cName = this.routeParams ? this.routeParams.get('container') : '';
+if (cName) this.selectedLogSource = 'container:' + cName;
 }
 } catch (err) {
 this.loginForm.error = err.message || 'Network error';
@@ -208,7 +241,9 @@ window.containersView.stopRefreshTimer();
 }
 });
 window.addEventListener('hashchange', () => {
-store.route = getRouteFromHash();
+const parsed = parseHash();
+store.route = parsed.route;
+store.routeParams = parsed.params;
 if (store.authenticated) {
 if (store.route === 'settings') {
 store.loadSettings();
@@ -219,7 +254,16 @@ window.settingsView.mounted();
 if (window.containersView && window.containersView.refresh) {
 window.containersView.refresh();
 }
+} else if (store.route === 'container-detail') {
+const cName = parsed.params.get('container') || '';
+if (window.containersView && window.containersView.loadDetail) {
+window.containersView.loadDetail(cName);
+}
 } else if (store.route === 'logs') {
+const cName = parsed.params.get('container');
+if (cName) {
+store.selectedLogSource = 'container:' + cName;
+}
 if (window.logsView && window.logsView.mounted) {
 window.logsView.mounted();
 }

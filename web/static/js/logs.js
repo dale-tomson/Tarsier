@@ -89,6 +89,11 @@ this.stopPolling();
 },
 async loadSources() {
 try {
+const params = appStore.routeParams || new URLSearchParams(window.location.hash.split('?')[1] || '');
+const containerParam = params.get('container');
+if (containerParam && !appStore.selectedLogSource) {
+appStore.selectedLogSource = 'container:' + containerParam;
+}
 const res = await appStore.apiFetch('/api/v1/sources');
 this.sources = (res && res.sources) || [];
 if (appStore.selectedLogSource) {

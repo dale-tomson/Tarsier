@@ -52,7 +52,49 @@ func SyncContainers(ctx context.Context, configDB *db.Handle, containers []Conta
 		}
 		defer stmtSource.Close()
 
+		// 1. Mark any previously running containers whose IDs are absent from the active running list as 'exited'
+		activeRunningIDs := make(map[string]bool)
 		for _, c := range containers {
+			if c.State == "running" {
+				activeRunningIDs[c.ID] = true
+			}
+		}
+
+		rows, err := tx.QueryContext(ctx, `SELECT id, name FROM container WHERE last_status = 'running';`)
+		if err == nil {
+			var staleIDs []string
+			for rows.Next() {
+				var sid, sname string
+				if err := rows.Scan(&sid, &sname); err == nil {
+					if !activeRunningIDs[sid] {
+						staleIDs = append(staleIDs, sid)
+					}
+				}
+			}
+			rows.Close()
+
+			for _, sid := range staleIDs {
+				_, _ = tx.ExecContext(ctx, `UPDATE container SET last_status = 'exited', last_seen = ? WHERE id = ?;`, now, sid)
+			}
+		}
+
+		// 2. For each container in the current sync list, supersede older records with the same name if running
+		stmtSupersede, err := tx.PrepareContext(ctx, `
+			UPDATE container SET last_status = 'exited'
+			WHERE name = ? AND id != ? AND last_status = 'running';
+		`)
+		if err != nil {
+			return fmt.Errorf("prepare container supersede: %w", err)
+		}
+		defer stmtSupersede.Close()
+
+		for _, c := range containers {
+			if c.State == "running" && c.Name != "" {
+				if _, err := stmtSupersede.ExecContext(ctx, c.Name, c.ID); err != nil {
+					return fmt.Errorf("exec container supersede (%s): %w", c.Name, err)
+				}
+			}
+
 			if _, err := stmtContainer.ExecContext(ctx, c.ID, c.Name, c.Image, now, now, c.State, c.RestartCount); err != nil {
 				return fmt.Errorf("exec container upsert (%s): %w", c.ID, err)
 			}

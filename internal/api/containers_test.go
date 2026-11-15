@@ -235,3 +235,58 @@ func TestContainersAPI_RequiresAuth(t *testing.T) {
 		t.Fatalf("expected 401 Unauthorized, got %d", rec.Code)
 	}
 }
+
+func TestContainersAPI_DeduplicatesMultipleIDsPerName(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 15, 14, 0, 0, 0, time.UTC)
+	clock := &mockClock{now: now}
+
+	srv, store, cookie := setupMetricsTestServer(t, clock)
+	defer store.Close()
+
+	// Seed multiple rows for same container name across restarts/recreations
+	err := store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(txCtx, `
+			INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+			VALUES
+				('old-id', 'recreated-app', 'nginx:alpine', 1700000000, 1700001000, 'running', 0),
+				('new-id', 'recreated-app', 'nginx:alpine', 1700001000, 1700002000, 'running', 1),
+				('exited-id', 'other-app', 'redis:7', 1700000500, 1700000900, 'exited', 0);
+		`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed containers failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec.Code)
+	}
+
+	var resp ContainersListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode list response failed: %v", err)
+	}
+
+	// Must contain exactly 2 containers: 1 for recreated-app and 1 for other-app
+	if len(resp.Containers) != 2 {
+		t.Fatalf("expected 2 deduplicated containers, got %d: %+v", len(resp.Containers), resp.Containers)
+	}
+
+	for _, c := range resp.Containers {
+		if c.Name == "recreated-app" {
+			if c.ID != "new-id" {
+				t.Errorf("expected active container ID 'new-id', got %q", c.ID)
+			}
+			if c.RestartCount != 1 {
+				t.Errorf("expected restart count 1, got %d", c.RestartCount)
+			}
+		}
+	}
+}
