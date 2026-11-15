@@ -18,6 +18,7 @@ import (
 	"github.com/dale-tomson/Tarsier/internal/collector/host"
 	"github.com/dale-tomson/Tarsier/internal/config"
 	"github.com/dale-tomson/Tarsier/internal/db"
+	"github.com/dale-tomson/Tarsier/internal/docker"
 	"github.com/dale-tomson/Tarsier/internal/metrics"
 	"github.com/dale-tomson/Tarsier/internal/model"
 )
@@ -174,17 +175,85 @@ func main() {
 		}
 	}
 
+	// Initialize Docker collector and event listener if enabled
+	var dockerConnectedFunc func() bool
+	if cfg.Docker.Enabled == nil || *cfg.Docker.Enabled {
+		dockerClient := docker.NewClient(cfg.Docker.Socket)
+		dockerFilter, err := docker.NewContainerFilter(cfg.Docker.Include, cfg.Docker.Exclude)
+		if err != nil {
+			log.Printf("Warning: invalid docker filter patterns: %v", err)
+		}
+
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		pingErr := dockerClient.Ping(pingCtx)
+		pingCancel()
+
+		if pingErr != nil {
+			log.Printf("Warning: Docker socket %s unavailable: %v (degrading to host-only monitoring)", cfg.Docker.Socket, pingErr)
+			dockerConnectedFunc = func() bool { return false }
+		} else {
+			log.Printf("Docker daemon connected at %s (mode: %s)", cfg.Docker.Socket, dockerFilter)
+
+			// Initial discovery and sync into config.db
+			initList, listErr := dockerClient.ListContainers(ctx, true)
+			if listErr == nil {
+				_ = docker.SyncContainers(ctx, store.Config, initList, cfg.Cache.MaxSources)
+			}
+
+			eventWatcher := docker.NewEventWatcher(dockerClient, dockerFilter, store.Config)
+			dockerConnectedFunc = eventWatcher.Connected
+
+			statsInterval, durErr := time.ParseDuration(cfg.Docker.StatsInterval)
+			if durErr != nil || statsInterval <= 0 {
+				statsInterval = 10 * time.Second
+			}
+
+			statsCollector := docker.NewStatsCollector(dockerClient, dockerFilter, ingestor, docker.StatsCollectorOptions{
+				Interval:    statsInterval,
+				Concurrency: 4,
+				MaxSources:  cfg.Cache.MaxSources,
+			})
+
+			// Route lifecycle events from watcher into stats collector
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case ev, ok := <-eventWatcher.Events():
+						if !ok {
+							return
+						}
+						statsCollector.HandleEvent(ev)
+					}
+				}
+			}()
+
+			go func() {
+				if err := eventWatcher.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+					log.Printf("Docker event watcher terminated: %v", err)
+				}
+			}()
+
+			if cfg.Docker.CollectMetrics == nil || *cfg.Docker.CollectMetrics {
+				go statsCollector.Run(ctx)
+				log.Printf("Docker stats collector started (interval: %s)", statsInterval)
+			}
+		}
+	}
+
 	// Initialize HTTP API and static asset server
 	server, err := api.NewServer(api.ServerConfig{
-		Config:    cfg,
-		ConfigDB:  store.Config,
-		MetricsDB: store.Metrics,
-		HotCache:  ingestor.Cache(),
-		Rollup:    rollup,
-		Auth:      authenticator,
-		Sessions:  sessions,
-		Limiter:   limiter,
-		Version:   Version,
+		Config:          cfg,
+		ConfigDB:        store.Config,
+		MetricsDB:       store.Metrics,
+		HotCache:        ingestor.Cache(),
+		Rollup:          rollup,
+		DockerConnected: dockerConnectedFunc,
+		Auth:            authenticator,
+		Sessions:        sessions,
+		Limiter:         limiter,
+		Version:         Version,
 	})
 	if err != nil {
 		log.Fatalf("Fatal: failed to initialize HTTP server: %v", err)

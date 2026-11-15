@@ -20,10 +20,11 @@ type mockSink struct {
 	samples []model.MetricSample
 }
 
-func (s *mockSink) Push(samples ...model.MetricSample) {
+func (s *mockSink) Push(samples ...model.MetricSample) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.samples = append(s.samples, samples...)
+	return len(samples)
 }
 
 func (s *mockSink) GetSamples() []model.MetricSample {

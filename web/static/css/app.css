@@ -263,3 +263,115 @@ dialog.login-dialog article {
   font-weight: 500;
   margin-left: 0.5rem;
 }
+
+/* Status Pills (Green, Amber, Red) */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.status-pill.status-green {
+  background-color: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.status-pill.status-amber {
+  background-color: rgba(234, 179, 8, 0.15);
+  color: #ca8a04;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.status-pill.status-red {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-green .status-dot {
+  background-color: #16a34a;
+}
+
+.status-amber .status-dot {
+  background-color: #ca8a04;
+}
+
+.status-red .status-dot {
+  background-color: #dc2626;
+}
+
+/* Dual-stat Subtitle */
+.dual-stat {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--pico-muted-color);
+  margin-top: 0.15rem;
+}
+
+/* Container Overview Grid Tiles */
+.container-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.container-tile {
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--pico-muted-border-color);
+  background: var(--pico-card-background-color);
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.1s, border-color 0.1s;
+}
+
+.container-tile:hover {
+  transform: translateY(-1px);
+  border-color: var(--pico-primary);
+}
+
+.container-tile .tile-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.container-tile .tile-sub {
+  font-size: 0.7rem;
+  color: var(--pico-muted-color);
+}
+
+/* Wide Modal Dialog for Container Details */
+.modal-wide article {
+  max-width: 900px;
+  width: 92vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+th.sortable:hover {
+  color: var(--pico-primary);
+}

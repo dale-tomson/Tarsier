@@ -12,7 +12,7 @@ import (
 
 // MetricSink defines the interface for emitting metrics to ingestors or caches.
 type MetricSink interface {
-	Push(samples ...model.MetricSample)
+	Push(samples ...model.MetricSample) int
 }
 
 type ioCounterState struct {

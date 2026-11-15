@@ -60,6 +60,9 @@
       if (window.hostView && (this.route === 'host' || this.route === 'overview')) {
         window.hostView.refresh();
       }
+      if (window.containersView && this.route === 'containers' && window.containersView.detailModalOpen && window.containersView.detailData) {
+        window.containersView.renderDetailCharts(window.containersView.detailData.container.name);
+      }
     },
     onRefreshIntervalChange() {
       if (window.hostView) {
@@ -208,8 +211,14 @@
   // Hash router sync
   window.addEventListener('hashchange', () => {
     store.route = getRouteFromHash();
-    if (store.route === 'settings' && store.authenticated) {
-      store.loadSettings();
+    if (store.authenticated) {
+      if (store.route === 'settings') {
+        store.loadSettings();
+      } else if (store.route === 'containers' || store.route === 'overview') {
+        if (window.containersView && window.containersView.refresh) {
+          window.containersView.refresh();
+        }
+      }
     }
   });
 
@@ -224,10 +233,13 @@
   window.store = store;
   const hostView = window.HostController ? window.HostController(store) : {};
   window.hostView = hostView;
+  const containersView = window.ContainersController ? window.ContainersController(store) : {};
+  window.containersView = containersView;
 
   window.PetiteVue.createApp({
     store,
     hostView,
+    containersView,
     overviewChart: window.ChartPanel ? window.ChartPanel('overview-chart') : {}
   }).mount();
 
@@ -236,6 +248,9 @@
     if (!document.hidden && store.authenticated) {
       if (store.route === 'host' || store.route === 'overview') {
         hostView.refresh();
+      }
+      if (store.route === 'containers' || store.route === 'overview') {
+        containersView.refresh();
       }
     }
   });
