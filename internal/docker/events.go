@@ -1,0 +1,384 @@
+package docker
+
+import (
+	"bufio"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/dale-tomson/Tarsier/internal/db"
+)
+
+// ContainerEvent represents a normalized container lifecycle transition.
+type ContainerEvent struct {
+	ContainerID   string `json:"container_id"`
+	ContainerName string `json:"container_name"` // Normalized without leading '/'
+	Image         string `json:"image"`
+	Action        string `json:"action"` // "start", "stop", "die", "oom", "restart", "destroy"
+	TS            int64  `json:"ts"`     // Unix epoch seconds
+	ExitCode      int    `json:"exit_code,omitempty"`
+	Detail        string `json:"detail"` // e.g. "exit_code=137 oom=true"
+}
+
+type dockerEventFrame struct {
+	Type     string `json:"Type"`   // "container"
+	Action   string `json:"Action"` // "create", "start", "stop", "die", "oom", "restart", "destroy"
+	Time     int64  `json:"time"`   // Unix epoch seconds
+	TimeNano int64  `json:"timeNano"`
+	Actor    struct {
+		ID         string            `json:"ID"`
+		Attributes map[string]string `json:"Attributes"`
+	} `json:"Actor"`
+}
+
+// EventWatcher connects to Docker's streaming /events API, monitors container lifecycle changes,
+// filters events according to ContainerFilter, persists transitions into config.db,
+// and publishes events to downstream listeners.
+type EventWatcher struct {
+	client     *Client
+	filter     *ContainerFilter
+	configDB   *db.Handle
+	eventsChan chan ContainerEvent
+	onEvent    func(ContainerEvent)
+
+	mu        sync.RWMutex
+	cursorTS  int64
+	connected bool
+}
+
+// EventWatcherOptions configures an EventWatcher.
+type EventWatcherOptions struct {
+	InitialCursorTS int64
+	OnEvent         func(ContainerEvent)
+}
+
+// NewEventWatcher initializes an EventWatcher.
+func NewEventWatcher(client *Client, filter *ContainerFilter, configDB *db.Handle, opts ...EventWatcherOptions) *EventWatcher {
+	var opt EventWatcherOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
+	startTS := opt.InitialCursorTS
+	if startTS <= 0 {
+		startTS = time.Now().Unix()
+	}
+
+	return &EventWatcher{
+		client:     client,
+		filter:     filter,
+		configDB:   configDB,
+		eventsChan: make(chan ContainerEvent, 256),
+		onEvent:    opt.OnEvent,
+		cursorTS:   startTS,
+	}
+}
+
+// Events returns the read-only channel delivering normalized container lifecycle events.
+func (w *EventWatcher) Events() <-chan ContainerEvent {
+	return w.eventsChan
+}
+
+// Connected returns whether the watcher currently has an active connection to Docker's event stream.
+func (w *EventWatcher) Connected() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.connected
+}
+
+// CursorTS returns the current stream cursor timestamp.
+func (w *EventWatcher) CursorTS() int64 {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.cursorTS
+}
+
+func (w *EventWatcher) setConnected(c bool) {
+	w.mu.Lock()
+	w.connected = c
+	w.mu.Unlock()
+}
+
+func (w *EventWatcher) updateCursor(ts int64) {
+	w.mu.Lock()
+	if ts > w.cursorTS {
+		w.cursorTS = ts
+	}
+	w.mu.Unlock()
+}
+
+// Run begins streaming events from the Docker daemon. It loops with exponential backoff
+// on disconnect until ctx is cancelled.
+func (w *EventWatcher) Run(ctx context.Context) error {
+	backoff := 1 * time.Second
+	const maxBackoff = 30 * time.Second
+
+	for {
+		select {
+		case <-ctx.Done():
+			w.setConnected(false)
+			return nil
+		default:
+		}
+
+		err := w.stream(ctx)
+		w.setConnected(false)
+
+		if ctx.Err() != nil {
+			return nil
+		}
+
+		if err != nil {
+			log.Printf("Docker event stream disconnected: %v; reconnecting in %v...", err, backoff)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(backoff):
+			}
+
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		} else {
+			backoff = 1 * time.Second
+		}
+	}
+}
+
+func (w *EventWatcher) stream(ctx context.Context) error {
+	w.mu.RLock()
+	since := w.cursorTS
+	w.mu.RUnlock()
+
+	filtersJSON := `{"type":["container"]}`
+	queryURL := fmt.Sprintf("http://localhost/events?since=%d&filters=%s",
+		since, url.QueryEscape(filtersJSON))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL, nil)
+	if err != nil {
+		return err
+	}
+
+	httpClient := w.client.StreamHTTPClient()
+	if httpClient == nil {
+		httpClient = w.client.httpClient
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		if isSocketUnavailable(err) {
+			return fmt.Errorf("%w: %v", ErrSocketUnavailable, err)
+		}
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		lr := io.LimitReader(resp.Body, 1024)
+		body, _ := io.ReadAll(lr)
+		return fmt.Errorf("docker /events returned unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+
+	w.setConnected(true)
+
+	// Bounded scanner: 16 KiB initial buffer, max 64 KiB line length
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 16<<10), 64<<10)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var frame dockerEventFrame
+		if err := json.Unmarshal(line, &frame); err != nil {
+			// Skip corrupted frames
+			continue
+		}
+
+		w.updateCursor(frame.Time)
+
+		if ev, ok := w.processFrame(frame); ok {
+			if err := w.persistAndDispatch(ctx, ev); err != nil {
+				log.Printf("Warning: failed to persist container event %s (%s): %v", ev.ContainerName, ev.Action, err)
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil && ctx.Err() == nil {
+		return err
+	}
+
+	return nil
+}
+
+func (w *EventWatcher) processFrame(frame dockerEventFrame) (ContainerEvent, bool) {
+	// Only track container events
+	if frame.Type != "" && frame.Type != "container" {
+		return ContainerEvent{}, false
+	}
+
+	action := strings.ToLower(strings.TrimSpace(frame.Action))
+	// Strip sub-actions e.g. "health_status: unhealthy" or exec actions
+	if idx := strings.Index(action, ":"); idx != -1 {
+		action = strings.TrimSpace(action[:idx])
+	}
+
+	// Filter down strictly to lifecycle actions
+	switch action {
+	case "start", "stop", "die", "oom", "restart", "destroy":
+		// Tracked
+	default:
+		return ContainerEvent{}, false
+	}
+
+	name := strings.TrimPrefix(frame.Actor.Attributes["name"], "/")
+	if name == "" {
+		name = frame.Actor.ID
+		if len(name) > 12 {
+			name = name[:12]
+		}
+	}
+
+	// Apply ContainerFilter
+	if w.filter != nil && !w.filter.Match(name) {
+		return ContainerEvent{}, false
+	}
+
+	var exitCode int
+	if ecStr, ok := frame.Actor.Attributes["exitCode"]; ok {
+		if ec, err := strconv.Atoi(ecStr); err == nil {
+			exitCode = ec
+		}
+	}
+
+	detail := ""
+	oomKilled := frame.Actor.Attributes["oomKilled"] == "true" || action == "oom"
+
+	switch action {
+	case "die":
+		if oomKilled {
+			detail = fmt.Sprintf("exit_code=%d oom=true", exitCode)
+		} else {
+			detail = fmt.Sprintf("exit_code=%d", exitCode)
+		}
+	case "oom":
+		detail = "oom=true"
+	case "restart":
+		detail = "restarting"
+	}
+
+	ev := ContainerEvent{
+		ContainerID:   frame.Actor.ID,
+		ContainerName: name,
+		Image:         frame.Actor.Attributes["image"],
+		Action:        action,
+		TS:            frame.Time,
+		ExitCode:      exitCode,
+		Detail:        detail,
+	}
+
+	return ev, true
+}
+
+func (w *EventWatcher) persistAndDispatch(ctx context.Context, ev ContainerEvent) error {
+	if w.configDB != nil {
+		err := w.configDB.ExecWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			// 1. Insert into container_event table
+			_, err := tx.ExecContext(ctx, `
+				INSERT INTO container_event (container_id, ts, type, detail)
+				VALUES (?, ?, ?, ?);
+			`, ev.ContainerID, ev.TS, ev.Action, ev.Detail)
+			if err != nil {
+				return fmt.Errorf("insert container_event: %w", err)
+			}
+
+			// 2. Update container table state
+			switch ev.Action {
+			case "start":
+				_, err = tx.ExecContext(ctx, `
+					INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+					VALUES (?, ?, ?, ?, ?, 'running', 0)
+					ON CONFLICT(id) DO UPDATE SET
+						name = CASE WHEN excluded.name != '' THEN excluded.name ELSE container.name END,
+						image = CASE WHEN excluded.image != '' THEN excluded.image ELSE container.image END,
+						last_status = 'running',
+						last_seen = excluded.last_seen;
+				`, ev.ContainerID, ev.ContainerName, ev.Image, ev.TS, ev.TS)
+
+			case "restart":
+				_, err = tx.ExecContext(ctx, `
+					INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+					VALUES (?, ?, ?, ?, ?, 'running', 1)
+					ON CONFLICT(id) DO UPDATE SET
+						last_status = 'running',
+						last_seen = excluded.last_seen,
+						restart_count = container.restart_count + 1;
+				`, ev.ContainerID, ev.ContainerName, ev.Image, ev.TS, ev.TS)
+
+			case "die", "stop":
+				_, err = tx.ExecContext(ctx, `
+					INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+					VALUES (?, ?, ?, ?, ?, 'exited', 0)
+					ON CONFLICT(id) DO UPDATE SET
+						last_status = 'exited',
+						last_seen = excluded.last_seen;
+				`, ev.ContainerID, ev.ContainerName, ev.Image, ev.TS, ev.TS)
+
+			case "destroy":
+				_, err = tx.ExecContext(ctx, `
+					INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+					VALUES (?, ?, ?, ?, ?, 'destroyed', 0)
+					ON CONFLICT(id) DO UPDATE SET
+						last_status = 'destroyed',
+						last_seen = excluded.last_seen;
+				`, ev.ContainerID, ev.ContainerName, ev.Image, ev.TS, ev.TS)
+			}
+
+			if err != nil {
+				return fmt.Errorf("upsert container state (%s): %w", ev.Action, err)
+			}
+
+			// 3. Upsert source entry
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO source (kind, name, host_id, first_seen, last_seen)
+				VALUES ('container', ?, 1, ?, ?)
+				ON CONFLICT(kind, name) DO UPDATE SET
+					last_seen = excluded.last_seen;
+			`, ev.ContainerName, ev.TS, ev.TS)
+			if err != nil {
+				return fmt.Errorf("upsert source (%s): %w", ev.ContainerName, err)
+			}
+
+			return nil
+		})
+
+		if err != nil {
+			return err
+		}
+	}
+
+	// Dispatch to subscriber channel (non-blocking)
+	select {
+	case w.eventsChan <- ev:
+	default:
+		// Queue full; avoid blocking
+	}
+
+	if w.onEvent != nil {
+		w.onEvent(ev)
+	}
+
+	return nil
+}
