@@ -53,7 +53,7 @@ func TestStore_OpenAndIsolation(t *testing.T) {
 		"alert_rule",
 		"alert_rule_state",
 		"alert_event",
-		"cleanup_history",
+		"cleanup_run",
 		"session",
 		"kv",
 	}
