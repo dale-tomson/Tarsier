@@ -49,7 +49,7 @@ function HostController(appStore) {
 return {
 store: appStore,
 summary: {
-cpu: { avg_pct: 0, peak_pct: 0 },
+cpu: { avg_pct: 0, peak_pct: 0, cores: 0 },
 ram: { avg_bytes: 0, peak_bytes: 0, total_bytes: 0 }
 },
 current: {

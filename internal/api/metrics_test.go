@@ -286,6 +286,9 @@ func TestDailyMetricsAPI_SummaryAndHistory(t *testing.T) {
 	if summary.Host.CPU.AvgPct != 14.2 || summary.Host.CPU.PeakPct != 68.5 {
 		t.Errorf("unexpected host CPU stats: %+v", summary.Host.CPU)
 	}
+	if summary.Host.CPU.Cores <= 0 {
+		t.Errorf("expected host CPU cores > 0, got %d", summary.Host.CPU.Cores)
+	}
 	if summary.Host.RAM.AvgBytes != 1450280000 || summary.Host.RAM.PeakBytes != 2100500000 || summary.Host.RAM.TotalBytes != 4294967296 {
 		t.Errorf("unexpected host RAM stats: %+v", summary.Host.RAM)
 	}

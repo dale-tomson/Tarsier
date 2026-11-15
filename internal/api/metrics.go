@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,7 @@ type DailyHostSummary struct {
 	CPU struct {
 		AvgPct  float64 `json:"avg_pct"`
 		PeakPct float64 `json:"peak_pct"`
+		Cores   int     `json:"cores"`
 	} `json:"cpu"`
 	RAM struct {
 		AvgBytes   int64 `json:"avg_bytes"`
@@ -323,6 +325,7 @@ func (s *Server) computeDailySummary(ctx context.Context) (*TodaySummaryResponse
 		Date:       todayStr,
 		Containers: make([]DailyContainerSummary, 0),
 	}
+	resp.Host.CPU.Cores = runtime.NumCPU()
 
 	if s.rollup == nil {
 		return resp, nil
