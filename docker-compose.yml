@@ -1,0 +1,60 @@
+services:
+  tarsier:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: local-dev
+        COMMIT: local
+    image: tarsier:local
+    container_name: tarsier
+    restart: unless-stopped
+    pid: host
+    user: "0:0"
+    read_only: true
+    mem_limit: 256m
+    cpus: 1.0
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Fallback defaults if not set in .env
+      TARSIER_CONFIG: ${TARSIER_CONFIG:-/config/tarsier.yaml}
+      GOMEMLIMIT: ${GOMEMLIMIT:-200MiB}
+      HOST_PROC: ${HOST_PROC:-/proc}
+      HOST_SYS: ${HOST_SYS:-/sys}
+      HOST_ROOT: ${HOST_ROOT:-/}
+    ports:
+      - "${TARSIER_PORT:-8080}:8080"
+    volumes:
+      # Mount configuration file (defaults to ./tarsier.example.yaml or custom file from .env)
+      - ${TARSIER_CONFIG_FILE:-./tarsier.example.yaml}:/config/tarsier.yaml:ro
+
+      # Persistent storage volume for SQLite databases (config.db, metrics.db)
+      # and append-only compressed log chunks (/data/logs/)
+      - tarsier-data:/data
+
+      # Read-only Docker Engine API socket for container discovery, resource metrics,
+      # lifecycle events, and log streaming
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+      # --- Bare-Metal Linux Host Telemetry Mounts ---
+      # On native Linux hosts, uncomment the 4 lines below to monitor the host machine's
+      # physical CPU, memory, storage disks, and network interfaces.
+      # (Also set HOST_PROC=/host/proc and HOST_SYS=/host/sys in your .env file).
+      #
+      # Note for macOS / Windows (Docker Desktop / OrbStack / Colima):
+      # Leave these commented out. Darwin/Windows host filesystems do not have /proc or /sys.
+      # Tarsier automatically gathers container metrics and VM telemetry without these mounts.
+      # - /proc:/host/proc:ro
+      # - /sys:/host/sys:ro
+      # - /:/host/root:ro,rslave
+      # - /var/log:/host/var/log:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+
+volumes:
+  tarsier-data:
+    driver: local

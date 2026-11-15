@@ -105,15 +105,47 @@ Tarsier is engineered from the ground up for strict resource efficiency on singl
 
 ## Quick Start (Docker Compose)
 
-### 1. Generate Admin Password Hash
-Tarsier requires an initial bcrypt hash for the `admin` user:
-```bash
-# Generate bcrypt hash (cost factor 12)
-htpasswd -nbBC 12 "" "your-strong-password" | tr -d ':\n'
-```
-*(Remember to escape `$` as `$$` when placing in `docker-compose.yml`.)*
+### Local Testing & Development
 
-### 2. Configure `docker-compose.yml`
+The repository includes a ready-to-run `docker-compose.yml` and `env.example` pre-configured for instant local testing against containers already running on your machine:
+
+1. **Set up local environment file:**
+   ```bash
+   cp env.example .env
+   ```
+   *(Pre-configured with local dev credentials: username `admin`, password `admin`)*
+
+2. **Build and start Tarsier:**
+   ```bash
+   docker compose up --build -d
+   ```
+
+3. **Access Dashboard:**
+   Open [http://localhost:8080](http://localhost:8080) and log in with:
+   - **Username:** `admin`
+   - **Password:** `admin`
+
+   Tarsier will automatically discover and monitor containers running on your local Docker daemon.
+
+---
+
+### Production Deployment
+
+For production single-server deployments:
+
+1. **Generate Admin Password Hash:**
+   Generate a strong bcrypt hash (cost factor 12) for the `admin` user:
+   ```bash
+   htpasswd -nbBC 12 "" "your-strong-password" | tr -d ':\n'
+   ```
+   *(Note: Remember to escape `$` as `$$` when placing in `docker-compose.yml` or `.env` for Compose interpolation).*
+
+2. **Configure `.env` or `docker-compose.yml`:**
+   Copy `env.example` to `.env` and set your production values:
+   ```bash
+   cp env.example .env
+   ```
+   Or use the production compose definition:
 ```yaml
 services:
   tarsier:
@@ -124,6 +156,12 @@ services:
     user: "0:0"
     read_only: true
     mem_limit: 256m
+    cpus: 1.0
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - path: .env
+        required: false
     environment:
       TARSIER_CONFIG: /config/tarsier.yaml
       TARSIER_ADMIN_USER: admin
@@ -135,23 +173,26 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - ./config:/config:ro
+      - ./tarsier.yaml:/config/tarsier.yaml:ro
       - tarsier-data:/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro,rslave
       - /var/log:/host/var/log:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
 
 volumes:
   tarsier-data:
+    driver: local
 ```
 
-### 3. Start Tarsier
-```bash
-docker compose up -d
-```
-Access the dashboard at `http://127.0.0.1:8080`.
+3. **Start Tarsier:**
+   ```bash
+   docker compose up -d
+   ```
+   Access the dashboard at `http://127.0.0.1:8080`.
 
 ---
 
