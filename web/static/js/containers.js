@@ -67,6 +67,13 @@ delete detailCharts[key];
 }
 return {
 containers: [],
+activeTab: 'running',
+get runningContainers() {
+return (this.containers || []).filter(c => c.state === 'running');
+},
+get exitedContainers() {
+return (this.containers || []).filter(c => c.state !== 'running');
+},
 dockerConnected: true,
 search: '',
 sortCol: 'name',
@@ -116,8 +123,9 @@ this.sortAsc = true;
 }
 },
 get filteredContainers() {
+const base = this.activeTab === 'exited' ? this.exitedContainers : this.runningContainers;
 const q = (this.search || '').trim().toLowerCase();
-let list = (this.containers || []).slice();
+let list = base.slice();
 if (q) {
 list = list.filter(c =>
 (c.name && c.name.toLowerCase().includes(q)) ||
