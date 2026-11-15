@@ -1,10 +1,20 @@
-# Tarsier
+<p align="center">
+  <img src="icon.svg" alt="Tarsier Icon" width="160">
+</p>
 
-[![Status: Beta](https://img.shields.io/badge/status-beta-orange.svg)](#beta-notice)
-[![Go Version](https://img.shields.io/badge/go-1.27-blue.svg)](https://golang.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Zero CGO](https://img.shields.io/badge/cgo-disabled-success.svg)](#architectural-principles)
-[![Zero Node](https://img.shields.io/badge/node.js-none-success.svg)](#embedded-dashboard)
+<h1 align="center">Tarsier</h1>
+
+<p align="center">
+  <strong>Ultra-lightweight, self-hosted, single-server observability engine and dashboard.</strong>
+</p>
+
+<p align="center">
+  <a href="#beta-notice"><img src="https://img.shields.io/badge/status-beta-orange.svg" alt="Status: Beta"></a>
+  <a href="https://golang.org"><img src="https://img.shields.io/badge/go-1.27-blue.svg" alt="Go Version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT"></a>
+  <a href="#architectural-principles"><img src="https://img.shields.io/badge/cgo-disabled-success.svg" alt="Zero CGO"></a>
+  <a href="#embedded-dashboard"><img src="https://img.shields.io/badge/node.js-none-success.svg" alt="Zero Node"></a>
+</p>
 
 **Tarsier** is an ultra-lightweight, self-hosted, single-server observability engine and dashboard. Packaged as a single static Go binary (`CGO_ENABLED=0`) and container image targeting **`< 256 MB` RAM** (`GOMEMLIMIT=200MiB`), it combines host telemetry, Docker container monitoring, compressed log chunk storage with fast search, in-memory alerting, automated database compaction, and pre-cleanup digest reports into one cohesive service with zero external dependencies.
 

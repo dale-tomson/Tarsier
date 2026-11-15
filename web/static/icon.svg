@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 115 512 268" width="512" height="268" fill="none" role="img" aria-label="Tarsier Observer Icon">
+  <!-- Left & Right Rounded Ears -->
+  <g fill="#0172ad">
+    <path d="M 96 152 C 70 124, 30 122, 20 147 C 9 173, 30 212, 54 229 C 64 198, 79 171, 96 152 Z" />
+    <path d="M 416 152 C 442 124, 482 122, 492 147 C 503 173, 482 212, 458 229 C 448 198, 433 171, 416 152 Z" />
+  </g>
+
+  <!-- Left Eye (Large Inner Eye + Oversized Puppy Pupil) -->
+  <circle cx="148" cy="258" r="98" fill="#0172ad" />
+  <circle cx="148" cy="258" r="74" fill="#ffffff" />
+  <circle cx="148" cy="258" r="61" fill="#0172ad" />
+  <circle cx="172" cy="230" r="19" fill="#ffffff" />
+  <circle cx="123" cy="283" r="7" fill="#ffffff" />
+
+  <!-- Right Eye (Large Inner Eye + Oversized Puppy Pupil) -->
+  <circle cx="364" cy="258" r="98" fill="#0172ad" />
+  <circle cx="364" cy="258" r="74" fill="#ffffff" />
+  <circle cx="364" cy="258" r="61" fill="#0172ad" />
+  <circle cx="388" cy="230" r="19" fill="#ffffff" />
+  <circle cx="339" cy="283" r="7" fill="#ffffff" />
+
+  <!-- Outlined Nose & Smooth Muzzle Curves (No Stem, Zero Sharp Edges) -->
+  <g stroke="#0172ad" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M 237 316 C 237 308, 275 308, 275 316 C 275 324, 263 333, 256 333 C 249 333, 237 324, 237 316 Z" />
+    <path d="M 256 333 L 256 348 C 256 361, 243 370, 229 370 C 211 370, 200 355, 205 337" />
+    <path d="M 256 348 C 256 361, 269 370, 283 370 C 301 370, 312 355, 307 337" />
+  </g>
+</svg>
