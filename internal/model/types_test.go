@@ -102,3 +102,16 @@ func TestLogEntryString(t *testing.T) {
 		t.Errorf("unexpected LogEntry string output: %s", s)
 	}
 }
+
+func TestMetricSample(t *testing.T) {
+	s := MetricSample{
+		Entity: "host",
+		Metric: "cpu_pct",
+		TS:     1731650000,
+		Value:  42.5,
+	}
+	var alias Sample = s
+	if alias.Entity != "host" || alias.Metric != "cpu_pct" || alias.TS != 1731650000 || alias.Value != 42.5 {
+		t.Fatalf("unexpected MetricSample fields: %+v", alias)
+	}
+}
