@@ -21,10 +21,15 @@ var (
 // WriteFunc defines an atomic write transaction executed by the single-writer goroutine.
 type WriteFunc func(ctx context.Context, tx *sql.Tx) error
 
+// RawWriteFunc defines a raw write operation executed directly on the single-writer connection
+// outside an explicit BEGIN ... COMMIT transaction block.
+type RawWriteFunc func(ctx context.Context, conn *sql.Conn) error
+
 type writeJob struct {
-	ctx  context.Context
-	fn   WriteFunc
-	done chan error // buffered with capacity 1 for sync execution; nil for fire-and-forget
+	ctx   context.Context
+	fn    WriteFunc
+	rawFn RawWriteFunc
+	done  chan error // buffered with capacity 1 for sync execution; nil for fire-and-forget
 }
 
 // WriterStats captures runtime counters for the single-writer worker.
@@ -77,6 +82,41 @@ func (w *Writer) ExecSync(ctx context.Context, fn WriteFunc) error {
 		ctx:  ctx,
 		fn:   fn,
 		done: done,
+	}
+
+	select {
+	case w.jobs <- job:
+		w.mu.RUnlock()
+	case <-w.stop:
+		w.mu.RUnlock()
+		return ErrWriterClosed
+	case <-ctx.Done():
+		w.mu.RUnlock()
+		return ctx.Err()
+	}
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// ExecRawSync executes a raw operation directly on the dedicated single-writer connection
+// outside a transaction, serialized through the same queue worker.
+func (w *Writer) ExecRawSync(ctx context.Context, fn RawWriteFunc) error {
+	w.mu.RLock()
+	if w.closed {
+		w.mu.RUnlock()
+		return ErrWriterClosed
+	}
+
+	done := make(chan error, 1)
+	job := writeJob{
+		ctx:   ctx,
+		rawFn: fn,
+		done:  done,
 	}
 
 	select {
@@ -174,6 +214,22 @@ func (w *Writer) executeJob(job writeJob) {
 
 	if job.ctx.Err() != nil {
 		err = job.ctx.Err()
+		return
+	}
+
+	if job.rawFn != nil {
+		conn, connErr := w.rw.Conn(job.ctx)
+		if connErr != nil {
+			err = fmt.Errorf("acquire rw conn: %w", connErr)
+			return
+		}
+		defer conn.Close()
+
+		if execErr := job.rawFn(job.ctx, conn); execErr != nil {
+			err = execErr
+			return
+		}
+		w.executed.Add(1)
 		return
 	}
 
