@@ -58,25 +58,34 @@ func ParseLevel(s string) Level {
 type LevelSource uint8
 
 const (
-	LevelSourceUnknown LevelSource = iota
+	LevelSourceNone LevelSource = iota
 	LevelSourceStructured
+	LevelSourceDelimited
 	LevelSourceKeyword
 	LevelSourceHint
-	LevelSourceDefault
+	LevelSourceInherited
+)
+
+// Backward-compatibility aliases for LevelSource.
+const (
+	LevelSourceUnknown = LevelSourceNone
+	LevelSourceDefault = LevelSourceHint
 )
 
 func (s LevelSource) String() string {
 	switch s {
 	case LevelSourceStructured:
 		return "structured"
+	case LevelSourceDelimited:
+		return "delimited"
 	case LevelSourceKeyword:
 		return "keyword"
 	case LevelSourceHint:
 		return "hint"
-	case LevelSourceDefault:
-		return "default"
+	case LevelSourceInherited:
+		return "inherited"
 	default:
-		return "unknown"
+		return "none"
 	}
 }
 
@@ -84,20 +93,30 @@ func (s LevelSource) String() string {
 type TimestampSource uint8
 
 const (
-	TimestampSourceUnknown TimestampSource = iota
-	TimestampSourceHeader
-	TimestampSourceParsed
-	TimestampSourceIngest
+	TimestampSourceReadTime TimestampSource = iota // 0 = read time
+	TimestampSourceLine                            // 1 = detected in line
+	TimestampSourceCarried                         // 2 = carried from previous line
+	TimestampSourceDocker                          // 3 = Docker timestamp
+)
+
+// Backward-compatibility aliases for TimestampSource.
+const (
+	TimestampSourceUnknown = TimestampSourceReadTime
+	TimestampSourceIngest  = TimestampSourceReadTime
+	TimestampSourceParsed  = TimestampSourceLine
+	TimestampSourceHeader  = TimestampSourceDocker
 )
 
 func (s TimestampSource) String() string {
 	switch s {
-	case TimestampSourceHeader:
-		return "header"
-	case TimestampSourceParsed:
-		return "parsed"
-	case TimestampSourceIngest:
-		return "ingest"
+	case TimestampSourceLine:
+		return "line"
+	case TimestampSourceCarried:
+		return "carried"
+	case TimestampSourceDocker:
+		return "docker"
+	case TimestampSourceReadTime:
+		return "read_time"
 	default:
 		return "unknown"
 	}
