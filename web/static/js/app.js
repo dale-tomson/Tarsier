@@ -96,6 +96,21 @@ window.alertsView.startTimer();
 dailySummary: null,
 authenticated: false,
 user: '',
+get truncatedUser() {
+const u = this.user || '';
+if (!u) return '';
+return u.length > 10 ? u.slice(0, 7) + '...' : u;
+},
+closeDropdown(e) {
+if (!e) return;
+const el = e.target || e.currentTarget;
+if (el) {
+const details = el.closest('details');
+if (details) {
+details.removeAttribute('open');
+}
+}
+},
 loginForm: {
 username: '',
 password: '',

@@ -14,6 +14,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Copy source tree
 COPY . .
 
+# Minify web assets at image build time (preserves clean/formatted source in repo)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go install github.com/tdewolff/minify/v2/cmd/minify@v2.20.37 && \
+    find web -type f \( -name "*.html" -o -name "*.css" -o -name "*.js" \) -exec /go/bin/minify -o {} {} \;
+
 # Build arguments for version metadata
 ARG VERSION=dev
 ARG COMMIT=none
