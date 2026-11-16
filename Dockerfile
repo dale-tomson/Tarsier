@@ -1,14 +1,15 @@
-# Stage 1: Build static multi-arch binary
+# Stage 1: Build static multi-arch binary natively on host architecture
 ARG GO_VERSION=alpine
-FROM golang:${GO_VERSION} AS builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS builder
 
 RUN apk add --no-cache ca-certificates tzdata git
 
 WORKDIR /build
 
-# Cache dependency downloads
+# Cache dependency downloads with BuildKit cache mount
 COPY go.mod go.sum* ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy source tree
 COPY . .
@@ -22,7 +23,9 @@ ARG BUILD_DATE=unknown
 ARG TARGETOS
 ARG TARGETARCH
 
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build \
     -tags netgo \
     -ldflags="-s -w -extldflags '-static' \
       -X 'main.Version=${VERSION}' \
