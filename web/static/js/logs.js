@@ -54,6 +54,19 @@ segments.push({ text: line.substring(lastIndex), match: false });
 }
 return segments.length > 0 ? segments : [{ text: line, match: false }];
 }
+function sortLatestFirst(entries) {
+if (!Array.isArray(entries)) return [];
+return entries.sort((a, b) => {
+const tsA = (a && a.ts) || '';
+const tsB = (b && b.ts) || '';
+if (tsA !== tsB) {
+return tsA < tsB ? 1 : -1;
+}
+const idA = (a && a.id) || '';
+const idB = (b && b.id) || '';
+return idA < idB ? 1 : (idA > idB ? -1 : 0);
+});
+}
 window.LogsController = function(appStore) {
 return {
 sources: [],
@@ -202,9 +215,16 @@ this.nextCursor = (res && res.nextCursor) || '';
 this.scannedBlocks = (res && res.scannedBlocks) || 0;
 this.fromCache = !!(res && res.fromCache);
 if (appendMode) {
-this.entries = this.entries.concat(newEntries);
+const seen = new Set(this.entries.map(e => e.id));
+for (let i = 0; i < newEntries.length; i++) {
+if (!seen.has(newEntries[i].id)) {
+this.entries.push(newEntries[i]);
+seen.add(newEntries[i].id);
+}
+}
+sortLatestFirst(this.entries);
 } else {
-this.entries = newEntries;
+this.entries = sortLatestFirst(newEntries);
 }
 } catch (e) {
 this.error = e.message;
@@ -226,22 +246,21 @@ const res = await appStore.apiFetch(url);
 const latestEntries = (res && res.entries) || [];
 if (latestEntries.length === 0) return;
 if (this.entries.length === 0) {
-this.entries = latestEntries;
+this.entries = sortLatestFirst(latestEntries);
 this.nextCursor = (res && res.nextCursor) || '';
 this.hasMore = !!(res && res.hasMore);
 return;
 }
-const existingIDs = new Set(this.entries.slice(0, 100).map(e => e.id));
-const toPrepend = [];
+const existingIDs = new Set(this.entries.map(e => e.id));
+const toAdd = [];
 for (let i = 0; i < latestEntries.length; i++) {
 if (!existingIDs.has(latestEntries[i].id)) {
-toPrepend.push(latestEntries[i]);
-} else {
-break;
+toAdd.push(latestEntries[i]);
+existingIDs.add(latestEntries[i].id);
 }
 }
-if (toPrepend.length > 0) {
-this.entries = toPrepend.concat(this.entries);
+if (toAdd.length > 0) {
+this.entries = sortLatestFirst(toAdd.concat(this.entries));
 if (this.entries.length > 2000) {
 this.entries = this.entries.slice(0, 2000);
 }

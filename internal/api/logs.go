@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -192,6 +193,14 @@ func (s *Server) handleLogsQuery(w http.ResponseWriter, r *http.Request) {
 		auth.WriteJSONError(w, http.StatusInternalServerError, "search_error", err.Error())
 		return
 	}
+
+	// Guarantee latest-first descending order (newest timestamp at index 0)
+	sort.SliceStable(searchRes.Entries, func(i, j int) bool {
+		if searchRes.Entries[i].TS != searchRes.Entries[j].TS {
+			return searchRes.Entries[i].TS > searchRes.Entries[j].TS
+		}
+		return searchRes.Entries[i].ID > searchRes.Entries[j].ID
+	})
 
 	entries := make([]LogEntryItem, len(searchRes.Entries))
 	for i, ent := range searchRes.Entries {
