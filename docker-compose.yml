@@ -44,9 +44,9 @@ services:
       # Mount configuration file (defaults to ./tarsier.yaml or custom file from .env)
       - ${TARSIER_CONFIG_FILE:-./tarsier.yaml}:/config/tarsier.yaml:ro
 
-      # Persistent storage volume for SQLite databases (config.db, metrics.db)
+      # Persistent storage mount on host disk for SQLite databases (config.db, metrics.db)
       # and append-only compressed log chunks (/data/logs/)
-      - tarsier-data:/data
+      - ${TARSIER_DATA_DIR:-./data}:/data
 
       # Read-only Docker Engine API socket for container discovery, resource metrics,
       # lifecycle events, and log streaming
@@ -66,7 +66,3 @@ services:
       # - /var/log:/host/var/log:ro
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
-
-volumes:
-  tarsier-data:
-    driver: local

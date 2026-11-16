@@ -191,7 +191,7 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./tarsier.yaml:/config/tarsier.yaml:ro
-      - tarsier-data:/data
+      - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
@@ -199,10 +199,6 @@ services:
       - /var/log:/host/var/log:ro
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
-
-volumes:
-  tarsier-data:
-    driver: local
 ```
 
 3. **Start Tarsier:**
