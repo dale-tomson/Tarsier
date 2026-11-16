@@ -4,7 +4,7 @@
 * **Branching Strategy:** Any changes **must** be committed and pushed to a **new branch created from an updated `main` branch** (`git checkout main && git pull && git checkout -b <type>/<short-description>`).
 * **Exception:** This rule holds false **only** if the changes are directly related to the current active working branch you are already checked out on. Never commit directly to `main`.
 * **Commit Granularity:** Keep commits atomic, scoped to one feature/task, with clear imperative messages.
-* **Pull Request Messages:** Upon pushing any branch, always provide a complete, copyable GitHub PR title and description in Markdown format (including Summary, Architectural Constraints & PRAGMAs, Test Verification, and Acceptance Checklist).
+* **Pull Request Messages:** Upon pushing any branch, always provide a complete, copyable GitHub PR title and description in Markdown format strictly matching the repository template in [`.github/pull_request_template.md`](.github/pull_request_template.md) (including Summary, Type of Change, Architectural Constraints & PRAGMAs Checklist, Test Verification, and Acceptance Checklist).
 
 ## 2. Project Overview & Core Constraints
 Tarsier is a lightweight, self-hosted, single-server observability tool distributed as a single static Go binary and multi-arch container image (`linux/amd64`, `linux/arm64`).
