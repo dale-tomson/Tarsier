@@ -13,6 +13,7 @@ import (
 	"mime/multipart"
 	"net"
 	"net/http"
+	"net/mail"
 	"net/smtp"
 	"net/textproto"
 	"net/url"
@@ -464,12 +465,53 @@ func (s *SMTPReportSender) Name() string {
 	return "email"
 }
 
+// ParseRecipients normalizes and splits email recipient entries, supporting
+// comma-separated, semicolon-separated, angle-bracketed, and display-name addresses.
+func ParseRecipients(to []string) []string {
+	var recipients []string
+	seen := make(map[string]bool)
+
+	for _, entry := range to {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+
+		// Try parsing as standard mail address list (handles commas, display names, angle brackets)
+		if addrs, err := mail.ParseAddressList(entry); err == nil && len(addrs) > 0 {
+			for _, a := range addrs {
+				clean := strings.TrimSpace(a.Address)
+				if clean != "" && !seen[clean] {
+					seen[clean] = true
+					recipients = append(recipients, clean)
+				}
+			}
+			continue
+		}
+
+		// Fallback: split by commas and semicolons
+		parts := strings.FieldsFunc(entry, func(r rune) bool {
+			return r == ',' || r == ';'
+		})
+		for _, p := range parts {
+			clean := strings.Trim(strings.TrimSpace(p), "<>\"' ")
+			if clean != "" && !seen[clean] {
+				seen[clean] = true
+				recipients = append(recipients, clean)
+			}
+		}
+	}
+	return recipients
+}
+
 func (s *SMTPReportSender) SendReport(ctx context.Context, payload ReportPayload) error {
 	host := strings.TrimSpace(s.cfg.SMTPHost)
 	if host == "" {
 		return fmt.Errorf("%w: smtp_host is empty", ErrPermanentConfig)
 	}
-	if len(s.cfg.To) == 0 {
+
+	recipients := ParseRecipients(s.cfg.To)
+	if len(recipients) == 0 {
 		return fmt.Errorf("%w: email to recipients list is empty", ErrPermanentConfig)
 	}
 
@@ -492,7 +534,7 @@ func (s *SMTPReportSender) SendReport(ctx context.Context, payload ReportPayload
 	addr := fmt.Sprintf("%s:%d", host, port)
 
 	start := time.Now()
-	log.Printf("[cleanup] [email] connecting to SMTP server %s (security=%s, recipients=%d)", addr, secMode, len(s.cfg.To))
+	log.Printf("[cleanup] [email] connecting to SMTP server %s (security=%s, recipients=%d)", addr, secMode, len(recipients))
 
 	// Build multipart/mixed message
 	var msg bytes.Buffer
@@ -509,7 +551,7 @@ func (s *SMTPReportSender) SendReport(ctx context.Context, payload ReportPayload
 	}
 
 	msg.WriteString(fmt.Sprintf("From: %s\r\n", from))
-	msg.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(s.cfg.To, ", ")))
+	msg.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(recipients, ", ")))
 	msg.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
 	msg.WriteString("MIME-Version: 1.0\r\n")
 	msg.WriteString(fmt.Sprintf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", boundary))
@@ -638,7 +680,7 @@ func (s *SMTPReportSender) SendReport(ctx context.Context, payload ReportPayload
 		return err
 	}
 
-	for _, recipient := range s.cfg.To {
+	for _, recipient := range recipients {
 		if err := c.Rcpt(recipient); err != nil {
 			err = fmt.Errorf("smtp rcpt to %s error: %w", recipient, err)
 			log.Printf("[cleanup] [email] failed: %s", RedactSecrets(err.Error()))
@@ -668,6 +710,6 @@ func (s *SMTPReportSender) SendReport(ctx context.Context, payload ReportPayload
 
 	_ = c.Quit()
 
-	log.Printf("[cleanup] [email] pre-cleanup report successfully delivered to %d recipient(s) in %v", len(s.cfg.To), time.Since(start))
+	log.Printf("[cleanup] [email] pre-cleanup report successfully delivered to %d recipient(s) in %v", len(recipients), time.Since(start))
 	return nil
 }

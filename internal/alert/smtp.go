@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"sort"
 	"strings"
@@ -68,10 +69,31 @@ func (s *SMTPNotifier) Send(ctx context.Context, n Notification) error {
 	}
 
 	var recipients []string
+	seen := make(map[string]bool)
 	for _, to := range s.cfg.To {
 		trimmed := strings.TrimSpace(to)
-		if trimmed != "" {
-			recipients = append(recipients, trimmed)
+		if trimmed == "" {
+			continue
+		}
+		if addrs, err := mail.ParseAddressList(trimmed); err == nil && len(addrs) > 0 {
+			for _, a := range addrs {
+				clean := strings.TrimSpace(a.Address)
+				if clean != "" && !seen[clean] {
+					seen[clean] = true
+					recipients = append(recipients, clean)
+				}
+			}
+			continue
+		}
+		parts := strings.FieldsFunc(trimmed, func(r rune) bool {
+			return r == ',' || r == ';'
+		})
+		for _, p := range parts {
+			clean := strings.Trim(strings.TrimSpace(p), "<>\"' ")
+			if clean != "" && !seen[clean] {
+				seen[clean] = true
+				recipients = append(recipients, clean)
+			}
 		}
 	}
 	if len(recipients) == 0 {
