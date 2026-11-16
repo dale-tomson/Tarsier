@@ -163,3 +163,5 @@ jobs:
           build-args: |
             VERSION=${{ needs.init.outputs.tag_name }}
             COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
