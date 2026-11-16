@@ -77,6 +77,9 @@ highlightedSourceIndex: 0,
 boundDocClickHandler: null,
 query: '',
 regex: false,
+timeRange: '',
+timeFrom: '',
+timeTo: '',
 level: '',
 stream: '',
 limit: 100,
@@ -134,6 +137,49 @@ return s && s.kind === 'container';
 },
 isContainerLive(s) {
 return s && s.kind === 'container' && (s.status === 'running' || s.status === 'healthy');
+},
+get timeRangeLabel() {
+if (this.timeRange === 'custom') {
+const fromStr = this.timeFrom ? this.timeFrom.replace('T', ' ') : 'Start';
+const toStr = this.timeTo ? this.timeTo.replace('T', ' ') : 'Now';
+return `${fromStr} → ${toStr}`;
+}
+if (!this.timeRange) return 'All Time';
+const labels = {
+'15m': 'Last 15m',
+'30m': 'Last 30m',
+'1h': 'Last 1h',
+'6h': 'Last 6h',
+'12h': 'Last 12h',
+'24h': 'Last 24h',
+'7d': 'Last 7d'
+};
+return labels[this.timeRange] || this.timeRange;
+},
+parseDurationSeconds(range) {
+switch (range) {
+case '15m': return 15 * 60;
+case '30m': return 30 * 60;
+case '1h': return 3600;
+case '6h': return 6 * 3600;
+case '12h': return 12 * 3600;
+case '24h': return 24 * 3600;
+case '7d': return 7 * 86400;
+default: return 0;
+}
+},
+onTimeRangeChange() {
+if (this.timeRange === 'custom') {
+if (!this.timeFrom && !this.timeTo) {
+const now = new Date();
+const past = new Date(now.getTime() - 3600000);
+const pad = n => String(n).padStart(2, '0');
+const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+this.timeFrom = fmt(past);
+this.timeTo = fmt(now);
+}
+}
+this.onFilterChange();
 },
 toggleSourceDropdown() {
 if (this.sourceDropdownOpen) {
@@ -297,6 +343,9 @@ this.onFilterChange();
 resetFilters() {
 this.query = '';
 this.regex = false;
+this.timeRange = '';
+this.timeFrom = '';
+this.timeTo = '';
 this.level = '';
 this.stream = '';
 this.limit = 100;
@@ -347,6 +396,26 @@ url += '&level=' + encodeURIComponent(this.level);
 if (this.stream) {
 url += '&stream=' + encodeURIComponent(this.stream);
 }
+if (this.timeRange === 'custom') {
+if (this.timeFrom) {
+const fromDate = new Date(this.timeFrom);
+if (!isNaN(fromDate.getTime())) {
+url += '&from=' + encodeURIComponent(fromDate.toISOString());
+}
+}
+if (this.timeTo) {
+const toDate = new Date(this.timeTo);
+if (!isNaN(toDate.getTime())) {
+url += '&to=' + encodeURIComponent(toDate.toISOString());
+}
+}
+} else if (this.timeRange) {
+const durSec = this.parseDurationSeconds(this.timeRange);
+if (durSec > 0) {
+const fromDate = new Date(Date.now() - durSec * 1000);
+url += '&from=' + encodeURIComponent(fromDate.toISOString());
+}
+}
 if (appendMode && this.nextCursor) {
 url += '&cursor=' + encodeURIComponent(this.nextCursor);
 }
@@ -376,6 +445,12 @@ this.loading = false;
 },
 async pollLatest() {
 if (!this.selectedSource || this.loading || this.pollInflight) return;
+if (this.timeRange === 'custom' && this.timeTo) {
+const toDate = new Date(this.timeTo);
+if (!isNaN(toDate.getTime()) && toDate.getTime() < Date.now() - 10000) {
+return;
+}
+}
 this.pollInflight = true;
 try {
 let url = '/api/v1/logs?source=' + encodeURIComponent(this.selectedSource) + '&limit=50';
@@ -385,6 +460,13 @@ if (this.regex) url += '&regex=true';
 }
 if (this.level) url += '&level=' + encodeURIComponent(this.level);
 if (this.stream) url += '&stream=' + encodeURIComponent(this.stream);
+if (this.timeRange && this.timeRange !== 'custom') {
+const durSec = this.parseDurationSeconds(this.timeRange);
+if (durSec > 0) {
+const fromDate = new Date(Date.now() - durSec * 1000);
+url += '&from=' + encodeURIComponent(fromDate.toISOString());
+}
+}
 const res = await appStore.apiFetch(url);
 const latestEntries = (res && res.entries) || [];
 if (latestEntries.length === 0) return;

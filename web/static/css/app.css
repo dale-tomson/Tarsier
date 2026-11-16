@@ -30,3 +30,5 @@
 .custom-select-option.highlighted .source-item-type{background-color:rgba(255,255,255,0.2) !important;color:var(--pico-primary-inverse) !important}
 .source-selected-check{font-size:0.75rem;color:var(--pico-primary);flex-shrink:0;margin-left:0.25rem}
 .custom-select-option.highlighted .source-selected-check{color:var(--pico-primary-inverse)}
+.log-datetime-input{padding:0.15rem 0.4rem !important;font-size:0.75rem !important;height:32px !important;min-height:32px !important;margin-bottom:0 !important;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;width:auto !important}
+.log-custom-time-item{display:flex;align-items:center;gap:0.3rem}
