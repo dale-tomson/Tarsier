@@ -2,133 +2,133 @@ package config
 
 // Config represents the complete Tarsier configuration schema.
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Auth      AuthConfig      `yaml:"auth"`
-	Storage   StorageConfig   `yaml:"storage"`
-	Retention RetentionConfig `yaml:"retention"`
-	Host      HostConfig      `yaml:"host"`
-	Docker    DockerConfig    `yaml:"docker"`
-	Logs      LogsConfig      `yaml:"logs"`
-	Notifiers NotifiersConfig `yaml:"notifiers"`
-	Cleanup   CleanupConfig   `yaml:"cleanup"`
-	Cache     CacheConfig     `yaml:"cache"`
-	Heartbeat HeartbeatConfig `yaml:"heartbeat"`
+	Server    ServerConfig    `yaml:"server" json:"server"`
+	Auth      AuthConfig      `yaml:"auth" json:"auth"`
+	Storage   StorageConfig   `yaml:"storage" json:"storage"`
+	Retention RetentionConfig `yaml:"retention" json:"retention"`
+	Host      HostConfig      `yaml:"host" json:"host"`
+	Docker    DockerConfig    `yaml:"docker" json:"docker"`
+	Logs      LogsConfig      `yaml:"logs" json:"logs"`
+	Notifiers NotifiersConfig `yaml:"notifiers" json:"notifiers"`
+	Cleanup   CleanupConfig   `yaml:"cleanup" json:"cleanup"`
+	Cache     CacheConfig     `yaml:"cache" json:"cache"`
+	Heartbeat HeartbeatConfig `yaml:"heartbeat" json:"heartbeat"`
 }
 
 type ServerConfig struct {
-	Listen   string `yaml:"listen"`
-	BaseURL  string `yaml:"base_url"`
-	Timezone string `yaml:"timezone"`
+	Listen   string `yaml:"listen" json:"listen"`
+	BaseURL  string `yaml:"base_url" json:"base_url"`
+	Timezone string `yaml:"timezone" json:"timezone"`
 }
 
 type AuthConfig struct {
-	SessionTTL       string `yaml:"session_ttl"`
-	MaxLoginAttempts int    `yaml:"max_login_attempts"`
-	Lockout          string `yaml:"lockout"`
+	SessionTTL       string `yaml:"session_ttl" json:"session_ttl"`
+	MaxLoginAttempts int    `yaml:"max_login_attempts" json:"max_login_attempts"`
+	Lockout          string `yaml:"lockout" json:"lockout"`
 }
 
 type StorageConfig struct {
-	Path           string `yaml:"path"`
-	LogsMaxSize    string `yaml:"logs_max_size"`
-	MetricsMaxSize string `yaml:"metrics_max_size"`
+	Path           string `yaml:"path" json:"path"`
+	LogsMaxSize    string `yaml:"logs_max_size" json:"logs_max_size"`
+	MetricsMaxSize string `yaml:"metrics_max_size" json:"metrics_max_size"`
 }
 
 type RetentionConfig struct {
-	Logs       string `yaml:"logs"`
-	MetricsRaw string `yaml:"metrics_raw"`
-	Metrics1m  string `yaml:"metrics_1m"`
-	Metrics5m  string `yaml:"metrics_5m"`
-	Metrics1d  string `yaml:"metrics_1d"`
+	Logs       string `yaml:"logs" json:"logs"`
+	MetricsRaw string `yaml:"metrics_raw" json:"metrics_raw"`
+	Metrics1m  string `yaml:"metrics_1m" json:"metrics_1m"`
+	Metrics5m  string `yaml:"metrics_5m" json:"metrics_5m"`
+	Metrics1d  string `yaml:"metrics_1d" json:"metrics_1d"`
 }
 
 type HostConfig struct {
-	Enabled       *bool    `yaml:"enabled"`
-	Interval      string   `yaml:"interval"`
-	Disks         []string `yaml:"disks"`
-	DiskExcludeFS []string `yaml:"disk_exclude_fs"`
+	Enabled       *bool    `yaml:"enabled" json:"enabled"`
+	Interval      string   `yaml:"interval" json:"interval"`
+	Disks         []string `yaml:"disks" json:"disks"`
+	DiskExcludeFS []string `yaml:"disk_exclude_fs" json:"disk_exclude_fs"`
 }
 
 type DockerConfig struct {
-	Enabled        *bool    `yaml:"enabled"`
-	Socket         string   `yaml:"socket"`
-	StatsInterval  string   `yaml:"stats_interval"`
-	CollectLogs    *bool    `yaml:"collect_logs"`
-	CollectMetrics *bool    `yaml:"collect_metrics"`
-	Include        []string `yaml:"include"`
-	Exclude        []string `yaml:"exclude"`
+	Enabled        *bool    `yaml:"enabled" json:"enabled"`
+	Socket         string   `yaml:"socket" json:"socket"`
+	StatsInterval  string   `yaml:"stats_interval" json:"stats_interval"`
+	CollectLogs    *bool    `yaml:"collect_logs" json:"collect_logs"`
+	CollectMetrics *bool    `yaml:"collect_metrics" json:"collect_metrics"`
+	Include        []string `yaml:"include" json:"include"`
+	Exclude        []string `yaml:"exclude" json:"exclude"`
 }
 
 type LogsConfig struct {
-	DefaultTimezone string          `yaml:"default_timezone"`
-	Detect          LogDetectConfig `yaml:"detect"`
-	Files           []LogFileConfig `yaml:"files"`
+	DefaultTimezone string          `yaml:"default_timezone" json:"default_timezone"`
+	Detect          LogDetectConfig `yaml:"detect" json:"detect"`
+	Files           []LogFileConfig `yaml:"files" json:"files"`
 }
 
 type LogDetectConfig struct {
-	MaxScanBytes  int   `yaml:"max_scan_bytes"`
-	KeywordLevels *bool `yaml:"keyword_levels"`
-	Hints         *bool `yaml:"hints"`
+	MaxScanBytes  int   `yaml:"max_scan_bytes" json:"max_scan_bytes"`
+	KeywordLevels *bool `yaml:"keyword_levels" json:"keyword_levels"`
+	Hints         *bool `yaml:"hints" json:"hints"`
 }
 
 type LogFileConfig struct {
-	Name string `yaml:"name"`
-	Path string `yaml:"path"`
+	Name string `yaml:"name" json:"name"`
+	Path string `yaml:"path" json:"path"`
 }
 
 type NotifiersConfig struct {
-	Email   EmailNotifierConfig   `yaml:"email"`
-	Discord DiscordNotifierConfig `yaml:"discord"`
+	Email   EmailNotifierConfig   `yaml:"email" json:"email"`
+	Discord DiscordNotifierConfig `yaml:"discord" json:"discord"`
 }
 
 type EmailNotifierConfig struct {
-	Enabled  bool     `yaml:"enabled"`
-	SMTPHost string   `yaml:"smtp_host"`
-	SMTPPort int      `yaml:"smtp_port"`
-	Security string   `yaml:"security"`
-	Username string   `yaml:"username"`
-	Password string   `yaml:"password"`
-	From     string   `yaml:"from"`
-	To       []string `yaml:"to"`
+	Enabled  bool     `yaml:"enabled" json:"enabled"`
+	SMTPHost string   `yaml:"smtp_host" json:"smtp_host"`
+	SMTPPort int      `yaml:"smtp_port" json:"smtp_port"`
+	Security string   `yaml:"security" json:"security"`
+	Username string   `yaml:"username" json:"username"`
+	Password string   `yaml:"password" json:"password"`
+	From     string   `yaml:"from" json:"from"`
+	To       []string `yaml:"to" json:"to"`
 }
 
 type DiscordNotifierConfig struct {
-	Enabled    bool   `yaml:"enabled"`
-	WebhookURL string `yaml:"webhook_url"`
-	Mention    string `yaml:"mention"`
+	Enabled    bool   `yaml:"enabled" json:"enabled"`
+	WebhookURL string `yaml:"webhook_url" json:"webhook_url"`
+	Mention    string `yaml:"mention" json:"mention"`
 }
 
 type CleanupConfig struct {
-	Schedule   string              `yaml:"schedule"`
-	BatchSize  int                 `yaml:"batch_size"`
-	BatchPause string              `yaml:"batch_pause"`
-	Report     CleanupReportConfig `yaml:"report"`
+	Schedule   string              `yaml:"schedule" json:"schedule"`
+	BatchSize  int                 `yaml:"batch_size" json:"batch_size"`
+	BatchPause string              `yaml:"batch_pause" json:"batch_pause"`
+	Report     CleanupReportConfig `yaml:"report" json:"report"`
 }
 
 type CleanupReportConfig struct {
-	Enabled                 *bool    `yaml:"enabled"`
-	Channels                []string `yaml:"channels"`
-	MinAttempts             int      `yaml:"min_attempts"`
-	RetryDelay              string   `yaml:"retry_delay"`
-	OnFailure               string   `yaml:"on_failure"`
-	TopPatterns             int      `yaml:"top_patterns"`
-	SampleLinesPerPattern   int      `yaml:"sample_lines_per_pattern"`
-	Format                  string   `yaml:"format"`
-	Template                string   `yaml:"template"`
-	MaxAttachment           string   `yaml:"max_attachment"`
+	Enabled               *bool    `yaml:"enabled" json:"enabled"`
+	Channels              []string `yaml:"channels" json:"channels"`
+	MinAttempts           int      `yaml:"min_attempts" json:"min_attempts"`
+	RetryDelay            string   `yaml:"retry_delay" json:"retry_delay"`
+	OnFailure             string   `yaml:"on_failure" json:"on_failure"`
+	TopPatterns           int      `yaml:"top_patterns" json:"top_patterns"`
+	SampleLinesPerPattern int      `yaml:"sample_lines_per_pattern" json:"sample_lines_per_pattern"`
+	Format                string   `yaml:"format" json:"format"`
+	Template              string   `yaml:"template" json:"template"`
+	MaxAttachment         string   `yaml:"max_attachment" json:"max_attachment"`
 }
 
 type CacheConfig struct {
-	MaxSources   int    `yaml:"max_sources"`
-	LogTailLines int    `yaml:"log_tail_lines"`
-	OverviewTTL  string `yaml:"overview_ttl"`
-	QueryTTL     string `yaml:"query_ttl"`
+	MaxSources   int    `yaml:"max_sources" json:"max_sources"`
+	LogTailLines int    `yaml:"log_tail_lines" json:"log_tail_lines"`
+	OverviewTTL  string `yaml:"overview_ttl" json:"overview_ttl"`
+	QueryTTL     string `yaml:"query_ttl" json:"query_ttl"`
 }
 
 type HeartbeatConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	URL      string `yaml:"url"`
-	Interval string `yaml:"interval"`
-	Timeout  string `yaml:"timeout"`
+	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	URL      string `yaml:"url" json:"url"`
+	Interval string `yaml:"interval" json:"interval"`
+	Timeout  string `yaml:"timeout" json:"timeout"`
 }
 
 // boolPtr returns a pointer to a boolean value.
