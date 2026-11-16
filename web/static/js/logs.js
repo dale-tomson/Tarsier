@@ -71,6 +71,10 @@ window.LogsController = function(appStore) {
 return {
 sources: [],
 selectedSource: '',
+sourceDropdownOpen: false,
+sourceSearchQuery: '',
+highlightedSourceIndex: 0,
+boundDocClickHandler: null,
 query: '',
 regex: false,
 level: '',
@@ -98,23 +102,121 @@ contextLoading: false,
 contextEntries: [],
 contextTargetIndex: -1,
 contextSource: '',
+get currentSource() {
+return (this.sources || []).find(s => String(s.id) === String(this.selectedSource)) || null;
+},
+get filteredSources() {
+const list = this.sources || [];
+if (!this.sourceSearchQuery || !this.sourceSearchQuery.trim()) {
+return list;
+}
+const q = this.sourceSearchQuery.trim().toLowerCase();
+return list.filter(s => {
+const name = (s.name || '').toLowerCase();
+const kind = (s.kind || '').toLowerCase();
+const typeLabel = (this.getSourceTypeLabel(s) || '').toLowerCase();
+return name.includes(q) || kind.includes(q) || typeLabel.includes(q);
+});
+},
+getSourceTypeLabel(s) {
+if (!s) return '';
+if (s.kind === 'container') return 'container';
+if (s.kind === 'file') {
+if (s.name && (s.name.startsWith('/var/log') || s.name.startsWith('var/log'))) {
+return 'var log';
+}
+return 'file';
+}
+return s.kind || 'log';
+},
+isContainer(s) {
+return s && s.kind === 'container';
+},
+isContainerLive(s) {
+return s && s.kind === 'container' && (s.status === 'running' || s.status === 'healthy');
+},
+toggleSourceDropdown() {
+if (this.sourceDropdownOpen) {
+this.closeSourceDropdown();
+} else {
+this.openSourceDropdown();
+}
+},
+openSourceDropdown() {
+this.sourceDropdownOpen = true;
+this.sourceSearchQuery = '';
+this.highlightedSourceIndex = 0;
+setTimeout(() => {
+const el = document.getElementById('log-source-search-input');
+if (el) el.focus();
+}, 50);
+},
+closeSourceDropdown() {
+this.sourceDropdownOpen = false;
+this.sourceSearchQuery = '';
+this.highlightedSourceIndex = 0;
+},
+selectSource(s) {
+if (!s) return;
+this.selectedSource = String(s.id);
+this.closeSourceDropdown();
+this.onSourceChange();
+},
+navigateSource(step) {
+const list = this.filteredSources;
+if (!list || list.length === 0) return;
+let next = this.highlightedSourceIndex + step;
+if (next < 0) next = 0;
+if (next >= list.length) next = list.length - 1;
+this.highlightedSourceIndex = next;
+setTimeout(() => {
+const activeEl = document.querySelector('.custom-select-option.highlighted');
+if (activeEl && activeEl.scrollIntoView) {
+activeEl.scrollIntoView({ block: 'nearest' });
+}
+}, 0);
+},
+selectHighlightedSource() {
+const list = this.filteredSources;
+if (list && list.length > 0) {
+const idx = Math.max(0, Math.min(this.highlightedSourceIndex, list.length - 1));
+this.selectSource(list[idx]);
+}
+},
 mounted() {
 this.loadSources();
 if (this.polling) {
 this.startPolling();
 }
 this.boundKeyHandler = (e) => {
-if (e.key === 'Escape' && this.isFullscreen) {
+if (e.key === 'Escape') {
+if (this.sourceDropdownOpen) {
+this.closeSourceDropdown();
+} else if (this.isFullscreen) {
 this.toggleFullscreen();
+}
 }
 };
 window.addEventListener('keydown', this.boundKeyHandler);
+
+this.boundDocClickHandler = (e) => {
+if (!this.sourceDropdownOpen) return;
+const selectWrap = document.getElementById('log-source-select-wrap');
+if (selectWrap && !selectWrap.contains(e.target)) {
+this.closeSourceDropdown();
+}
+};
+document.addEventListener('click', this.boundDocClickHandler);
 },
 unmounted() {
 this.stopPolling();
 if (this.boundKeyHandler) {
 window.removeEventListener('keydown', this.boundKeyHandler);
 this.boundKeyHandler = null;
+}
+if (this.boundDocClickHandler) {
+document.removeEventListener('click', this.boundDocClickHandler);
+this.boundDocClickHandler = null;
 }
 if (this.newLogsTimer) {
 clearTimeout(this.newLogsTimer);

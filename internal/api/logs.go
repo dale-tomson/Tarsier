@@ -22,6 +22,7 @@ type SourceItem struct {
 	Name          string `json:"name"`
 	LastSeen      string `json:"last_seen"` // RFC 3339
 	BufferedLines int    `json:"buffered_lines"`
+	Status        string `json:"status,omitempty"`
 }
 
 // SourcesResponse is the payload returned by GET /api/v1/sources.
@@ -69,13 +70,23 @@ func (s *Server) handleSourcesList(w http.ResponseWriter, r *http.Request) {
 
 	if s.configDB != nil {
 		rows, err := s.configDB.RO.QueryContext(r.Context(),
-			"SELECT id, kind, name, last_seen FROM source ORDER BY kind ASC, name ASC")
+			`SELECT s.id, s.kind, s.name, s.last_seen, COALESCE(c.last_status, '') AS status
+			 FROM source s
+			 LEFT JOIN (
+				 SELECT name, last_status,
+				        ROW_NUMBER() OVER (
+				            PARTITION BY name 
+				            ORDER BY CASE WHEN last_status = 'running' THEN 1 ELSE 2 END, last_seen DESC
+				        ) as rn
+				 FROM container
+			 ) c ON s.kind = 'container' AND (s.name = c.name OR s.name = TRIM(c.name, '/') OR ('/' || s.name) = c.name) AND c.rn = 1
+			 ORDER BY s.kind ASC, s.name ASC`)
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
 				var item SourceItem
 				var lastSeenSec int64
-				if scanErr := rows.Scan(&item.ID, &item.Kind, &item.Name, &lastSeenSec); scanErr == nil {
+				if scanErr := rows.Scan(&item.ID, &item.Kind, &item.Name, &lastSeenSec, &item.Status); scanErr == nil {
 					if lastSeenSec > 0 {
 						item.LastSeen = time.Unix(lastSeenSec, 0).UTC().Format(time.RFC3339)
 					}
