@@ -77,6 +77,10 @@ window.hostView.refresh();
 if (window.containersView && (this.route === 'container-detail' || (this.route === 'containers' && window.containersView.detailModalOpen)) && window.containersView.detailData) {
 window.containersView.renderDetailCharts(window.containersView.detailData.container.name);
 }
+if (window.logsView && this.route === 'logs') {
+window.logsView.timeRange = this.timeRange;
+window.logsView.onFilterChange();
+}
 },
 onRefreshIntervalChange() {
 if (window.hostView && window.hostView.startRefreshTimer) {

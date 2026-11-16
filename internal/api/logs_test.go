@@ -533,3 +533,103 @@ func TestLogsAPI_LatestFirstOrdering(t *testing.T) {
 		}
 	}
 }
+
+func TestLogsAPI_TimeRangeFiltering(t *testing.T) {
+	ctx := context.Background()
+	baseTime := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+
+	// Test parseLogTimeParam directly with various formats
+	rfcStr := baseTime.Format(time.RFC3339)
+	ts1, err := parseLogTimeParam(rfcStr)
+	if err != nil || ts1 != baseTime.UnixNano() {
+		t.Fatalf("parseLogTimeParam RFC3339 failed: ts=%d err=%v", ts1, err)
+	}
+
+	dtLocalStr := "2026-11-16T12:00"
+	ts2, err := parseLogTimeParam(dtLocalStr)
+	if err != nil || ts2 != baseTime.UnixNano() {
+		t.Fatalf("parseLogTimeParam datetime-local failed: ts=%d err=%v", ts2, err)
+	}
+
+	relTs, err := parseLogTimeParam("1h")
+	if err != nil || relTs <= 0 {
+		t.Fatalf("parseLogTimeParam relative '1h' failed: ts=%d err=%v", relTs, err)
+	}
+
+	// Test HTTP query with from & to
+	tmpDir := t.TempDir()
+	tailCache := logs.NewTailCache(10, 300)
+	engine, err := logs.NewLogQueryEngine(logs.LogQueryEngineConfig{
+		BaseDir:   tmpDir,
+		TailCache: tailCache,
+	})
+	if err != nil {
+		t.Fatalf("NewLogQueryEngine failed: %v", err)
+	}
+
+	srv, store, cookie := setupLogsTestServer(t, engine, tailCache)
+	defer store.Close()
+
+	var sID int64
+	err = store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		res, err := tx.ExecContext(txCtx, `
+			INSERT INTO source (kind, name, host_id, first_seen, last_seen)
+			VALUES ('container', 'timerange-test', 1, 1700000000, 1700001000);
+		`)
+		if err != nil {
+			return err
+		}
+		sID, _ = res.LastInsertId()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed source failed: %v", err)
+	}
+
+	// Push logs at +10s, +20s, +30s, +40s, +50s
+	offsets := []int{10, 20, 30, 40, 50}
+	for _, off := range offsets {
+		tailCache.Push(model.LogEntry{
+			Timestamp:       baseTime.Add(time.Duration(off) * time.Second),
+			TimestampSource: model.TimestampSourceLine,
+			SourceID:        fmt.Sprintf("%d", sID),
+			Level:           model.LevelInfo,
+			LevelSource:     model.LevelSourceStructured,
+			Stream:          model.StreamStdout,
+			Message:         []byte(fmt.Sprintf("log at %d", off)),
+		})
+	}
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	client := ts.Client()
+
+	// Query from +15s to +35s (should match +20s and +30s only)
+	fromParam := baseTime.Add(15 * time.Second).Format(time.RFC3339)
+	toParam := baseTime.Add(35 * time.Second).Format(time.RFC3339)
+	reqUrl := fmt.Sprintf("%s/api/v1/logs?source=%d&from=%s&to=%s", ts.URL, sID, fromParam, toParam)
+
+	req, _ := http.NewRequest(http.MethodGet, reqUrl, nil)
+	req.AddCookie(cookie)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/v1/logs with time range failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var res LogsQueryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+
+	if len(res.Entries) != 2 {
+		t.Fatalf("expected exactly 2 entries in time range, got %d", len(res.Entries))
+	}
+
+	// Ordered latest-first: +30s then +20s
+	if res.Entries[0].Line != "log at 30" || res.Entries[1].Line != "log at 20" {
+		t.Errorf("unexpected entries: %+v", res.Entries)
+	}
+}

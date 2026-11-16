@@ -378,17 +378,41 @@ func parseLogTimeParam(s string) (int64, error) {
 		return 0, nil
 	}
 
-	// Try RFC 3339 Nano
+	// 1. Try RFC 3339 Nano & RFC 3339
 	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t.UnixNano(), nil
+		return t.UTC().UnixNano(), nil
 	}
-	// Try RFC 3339
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.UnixNano(), nil
+		return t.UTC().UnixNano(), nil
 	}
-	// Try integer timestamp (seconds or nanoseconds)
+
+	// 2. Try common ISO date-time formats (including HTML5 datetime-local)
+	layouts := []string{
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if t, err := time.ParseInLocation(layout, s, time.UTC); err == nil {
+			return t.UnixNano(), nil
+		}
+	}
+
+	// 3. Try relative durations (e.g. 15m, 1h, 24h, 7d, now-1h)
+	cleanRel := strings.TrimPrefix(strings.TrimPrefix(s, "now-"), "-")
+	if strings.HasSuffix(cleanRel, "d") {
+		daysStr := strings.TrimSuffix(cleanRel, "d")
+		if days, err := strconv.Atoi(daysStr); err == nil && days > 0 {
+			return time.Now().Add(-time.Duration(days) * 24 * time.Hour).UnixNano(), nil
+		}
+	} else if dur, err := time.ParseDuration(cleanRel); err == nil && dur > 0 {
+		return time.Now().Add(-dur).UnixNano(), nil
+	}
+
+	// 4. Try integer timestamp (seconds or nanoseconds)
 	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
-		// If less than 1e11 (year ~5138 in seconds), assume seconds
 		if n < 100_000_000_000 {
 			return n * 1_000_000_000, nil
 		}
