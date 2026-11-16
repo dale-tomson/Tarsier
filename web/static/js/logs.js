@@ -121,8 +121,6 @@ clearTimeout(this.newLogsTimer);
 this.newLogsTimer = null;
 }
 },
-this.stopPolling();
-},
 async loadSources() {
 try {
 const hashQuery = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '';
