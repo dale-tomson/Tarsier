@@ -324,18 +324,31 @@ func (s *Server) resolveSource(ctx context.Context, param string) (SourceMeta, e
 		return meta, err
 	}
 
-	// 2. If kind:name (e.g. container:api-service or file:nginx-access)
+	// 2. If kind:name (e.g. container:api-service, container:/api-service, or file:nginx-access)
 	if strings.Contains(param, ":") {
 		parts := strings.SplitN(param, ":", 2)
+		kind := strings.TrimSpace(parts[0])
+		name := strings.TrimSpace(parts[1])
+		cleanName := strings.TrimPrefix(name, "/")
+
 		err := s.configDB.RO.QueryRowContext(ctx,
-			"SELECT id, kind, name FROM source WHERE kind = ? AND name = ?", parts[0], parts[1]).
+			"SELECT id, kind, name FROM source WHERE kind = ? AND (name = ? OR name = ? OR name = ?) LIMIT 1",
+			kind, name, cleanName, "/"+cleanName).
 			Scan(&meta.ID, &meta.Kind, &meta.Name)
-		return meta, err
+		if err == nil {
+			return meta, nil
+		}
 	}
 
-	// 3. Name only
+	// 3. Name only (or fallback)
+	cleanParam := strings.TrimPrefix(strings.TrimSpace(param), "/")
 	err := s.configDB.RO.QueryRowContext(ctx,
-		"SELECT id, kind, name FROM source WHERE name = ? OR kind || ':' || name = ? LIMIT 1", param, param).
+		`SELECT id, kind, name FROM source
+		 WHERE name = ? OR name = ? OR name = ?
+		    OR kind || ':' || name = ? OR kind || ':' || name = ?
+		 LIMIT 1`,
+		param, cleanParam, "/"+cleanParam,
+		param, "container:"+cleanParam).
 		Scan(&meta.ID, &meta.Kind, &meta.Name)
 	return meta, err
 }

@@ -154,6 +154,20 @@ func TestLogsAPI_SourcesAndUnfilteredTail(t *testing.T) {
 	if logsRes.ScannedBlocks != 0 {
 		t.Errorf("expected scanned_blocks == 0, got %d", logsRes.ScannedBlocks)
 	}
+
+	// 4b. Test resolution with leading slash and bare name
+	for _, qSource := range []string{"container:/api", "api"} {
+		reqSlash, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/logs?source="+qSource, nil)
+		reqSlash.AddCookie(cookie)
+		respSlash, sErr := client.Do(reqSlash)
+		if sErr != nil {
+			t.Fatalf("GET /api/v1/logs?source=%s failed: %v", qSource, sErr)
+		}
+		if respSlash.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 OK for source=%s, got %d", qSource, respSlash.StatusCode)
+		}
+		respSlash.Body.Close()
+	}
 	if len(logsRes.Entries) != 15 {
 		t.Fatalf("expected 15 entries, got %d", len(logsRes.Entries))
 	}
@@ -385,7 +399,10 @@ func TestLogsAPI_ContextEndpoint(t *testing.T) {
 	// 1. Get an entry ID from /api/v1/logs
 	reqLogs, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/logs?source=1&limit=10", nil)
 	reqLogs.AddCookie(cookie)
-	respLogs, _ := client.Do(reqLogs)
+	respLogs, err := client.Do(reqLogs)
+	if err != nil {
+		t.Fatalf("GET /api/v1/logs failed: %v", err)
+	}
 
 	var logsRes LogsQueryResponse
 	_ = json.NewDecoder(respLogs.Body).Decode(&logsRes)

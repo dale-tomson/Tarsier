@@ -89,27 +89,42 @@ this.stopPolling();
 },
 async loadSources() {
 try {
-const containerParam = (appStore.routeParams && appStore.routeParams.container) || (new URLSearchParams(window.location.hash.split('?')[1] || '').get('container'));
-if (containerParam && !appStore.selectedLogSource) {
-appStore.selectedLogSource = 'container:' + containerParam;
+const hashQuery = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '';
+const urlParams = new URLSearchParams(hashQuery);
+let containerParam = (appStore.routeParams && appStore.routeParams.container) || urlParams.get('container') || '';
+if (containerParam) {
+containerParam = decodeURIComponent(containerParam).trim().replace(/^\/+/, '');
 }
 const res = await appStore.apiFetch('/api/v1/sources');
 this.sources = (res && res.sources) || [];
-if (appStore.selectedLogSource) {
-const target = appStore.selectedLogSource;
+let target = appStore.selectedLogSource || (containerParam ? ('container:' + containerParam) : '');
 appStore.selectedLogSource = null;
+if (target) {
+const cleanTarget = target.replace(/^container:\/?/, '');
 const matched = this.sources.find(s =>
+String(s.id) === target ||
 s.name === target ||
 (s.kind + ':' + s.name) === target ||
-String(s.id) === target
+s.name === cleanTarget ||
+(s.kind === 'container' && s.name === cleanTarget)
 );
 if (matched) {
 this.selectedSource = String(matched.id);
+this.error = null;
 } else {
-this.selectedSource = target;
+this.selectedSource = '';
+this.entries = [];
+this.error = 'Source "' + target + '" not found. It may not have generated logs yet.';
+return;
 }
-} else if (!this.selectedSource && this.sources.length > 0) {
+} else if (!this.selectedSource || !this.sources.some(s => String(s.id) === this.selectedSource)) {
+if (this.sources.length > 0) {
 this.selectedSource = String(this.sources[0].id);
+this.error = null;
+} else {
+this.selectedSource = '';
+this.entries = [];
+}
 }
 if (this.selectedSource) {
 this.fetchLogs(false);
@@ -118,10 +133,14 @@ this.fetchLogs(false);
 this.error = e.message;
 }
 },
+async refreshAll() {
+await this.loadSources();
+},
 onSourceChange() {
 this.nextCursor = '';
 this.hasMore = false;
 this.entries = [];
+this.error = null;
 this.fetchLogs(false);
 },
 onFilterChange() {

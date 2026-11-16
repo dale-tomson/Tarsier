@@ -52,10 +52,9 @@ window.containersView.loadDetail(pObj.container);
 if (window.containersView && window.containersView.refresh) {
 window.containersView.refresh();
 }
-} else if (r === 'logs' && pObj.container) {
+} else if (r === 'logs') {
+if (pObj && pObj.container) {
 this.selectedLogSource = 'container:' + pObj.container;
-if (window.logsView && window.logsView.loadSources) {
-window.logsView.loadSources();
 }
 }
 }

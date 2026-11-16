@@ -13,6 +13,7 @@ import (
 	"github.com/dale-tomson/Tarsier/internal/api"
 	"github.com/dale-tomson/Tarsier/internal/auth"
 	"github.com/dale-tomson/Tarsier/internal/cleanup"
+	"github.com/dale-tomson/Tarsier/internal/collector"
 	"github.com/dale-tomson/Tarsier/internal/collector/host"
 	"github.com/dale-tomson/Tarsier/internal/config"
 	"github.com/dale-tomson/Tarsier/internal/db"
@@ -20,6 +21,7 @@ import (
 	"github.com/dale-tomson/Tarsier/internal/logs"
 	"github.com/dale-tomson/Tarsier/internal/metrics"
 	"github.com/dale-tomson/Tarsier/internal/model"
+	"github.com/klauspost/compress/zstd"
 )
 
 // runTestConfig validates the configuration at configPath and prints an effective summary.
@@ -116,6 +118,7 @@ type alertingComponents struct {
 	dispatcher         *alert.Dispatcher
 	heartbeatWorker    *alert.HeartbeatWorker
 	containerEvaluator *alert.ContainerEvaluator
+	logEvaluator       *alert.LogEvaluator
 }
 
 // bootstrapAlerting initializes rule storage, cache, state machine, evaluators, and dispatcher.
@@ -142,7 +145,21 @@ func bootstrapAlerting(ctx context.Context, cfg *config.Config, store *db.Store,
 	containerEvaluator := alert.NewContainerEvaluator(ruleCache, stateMachine, nil)
 	go containerEvaluator.Run(ctx)
 
-	logEvaluator := alert.NewLogEvaluator(ruleCache, nil, stateMachine, nil)
+	sourceResolver := alert.SourceResolverFunc(func(sourceID string) string {
+		var kind, name string
+		err := store.Config.RO.QueryRowContext(ctx,
+			"SELECT kind, name FROM source WHERE id = ? OR name = ? LIMIT 1", sourceID, sourceID).
+			Scan(&kind, &name)
+		if err == nil {
+			if kind == "container" {
+				return "container:" + name
+			}
+			return kind + ":" + name
+		}
+		return sourceID
+	})
+
+	logEvaluator := alert.NewLogEvaluator(ruleCache, sourceResolver, stateMachine, nil)
 	go logEvaluator.Run(ctx)
 
 	heartbeatWorker, err := alert.NewHeartbeatWorker(cfg.Heartbeat, alert.WithHeartbeatVersion(Version))
@@ -159,11 +176,25 @@ func bootstrapAlerting(ctx context.Context, cfg *config.Config, store *db.Store,
 		dispatcher:         dispatcher,
 		heartbeatWorker:    heartbeatWorker,
 		containerEvaluator: containerEvaluator,
+		logEvaluator:       logEvaluator,
 	}, nil
 }
 
-// bootstrapCollectors initializes host metrics and docker collection pipelines.
-func bootstrapCollectors(ctx context.Context, cfg *config.Config, store *db.Store, ingestor *metrics.Ingestor, containerEvaluator *alert.ContainerEvaluator) func() bool {
+// collectorHandles bundles collectors and their lifecycle controls.
+type collectorHandles struct {
+	dockerConnectedFunc func() bool
+	stop                func()
+}
+
+// bootstrapCollectors initializes host metrics, docker collection, and host file tailers.
+func bootstrapCollectors(
+	ctx context.Context,
+	cfg *config.Config,
+	store *db.Store,
+	ingestor *metrics.Ingestor,
+	containerEvaluator *alert.ContainerEvaluator,
+	logIngestor *logs.LogIngestor,
+) *collectorHandles {
 	// Start host collector if enabled
 	if cfg.Host.Enabled == nil || *cfg.Host.Enabled {
 		hostChan := make(chan model.MetricSample, 4096)
@@ -189,8 +220,9 @@ func bootstrapCollectors(ctx context.Context, cfg *config.Config, store *db.Stor
 		}
 	}
 
-	// Initialize Docker collector and event listener if enabled
+	// Initialize Docker collector, log followers, and event listener if enabled
 	var dockerConnectedFunc func() bool
+	var dockerLogManager *docker.DockerLogManager
 	if cfg.Docker.Enabled == nil || *cfg.Docker.Enabled {
 		dockerClient := docker.NewClient(cfg.Docker.Socket)
 		dockerFilter, err := docker.NewContainerFilter(cfg.Docker.Include, cfg.Docker.Exclude)
@@ -211,6 +243,25 @@ func bootstrapCollectors(ctx context.Context, cfg *config.Config, store *db.Stor
 			initList, listErr := dockerClient.ListContainers(ctx, true)
 			if listErr == nil {
 				_ = docker.SyncContainers(ctx, store.Config, initList, cfg.Cache.MaxSources)
+			}
+
+			if logIngestor != nil && (cfg.Docker.CollectLogs == nil || *cfg.Docker.CollectLogs) {
+				dockerLogManager = docker.NewLogManager(docker.LogManagerConfig{
+					Client:        dockerClient,
+					Filter:        dockerFilter,
+					ConfigDB:      store.Config,
+					Sink:          logIngestor,
+					FlushInterval: 3 * time.Second,
+					MaxLineBytes:  65536,
+				})
+				if listErr == nil {
+					for _, c := range initList {
+						if c.State == "running" {
+							dockerLogManager.StartContainer(ctx, c)
+						}
+					}
+				}
+				log.Printf("Docker container log manager started")
 			}
 
 			eventWatcher := docker.NewEventWatcher(dockerClient, dockerFilter, store.Config)
@@ -235,6 +286,9 @@ func bootstrapCollectors(ctx context.Context, cfg *config.Config, store *db.Stor
 						}
 						statsCollector.HandleEvent(ev)
 						containerEvaluator.OnContainerEvent(ctx, ev)
+						if dockerLogManager != nil {
+							dockerLogManager.HandleEvent(ev)
+						}
 					}
 				}
 			}()
@@ -250,9 +304,45 @@ func bootstrapCollectors(ctx context.Context, cfg *config.Config, store *db.Stor
 				log.Printf("Docker stats collector started (interval: %s)", statsInterval)
 			}
 		}
+	} else {
+		dockerConnectedFunc = func() bool { return false }
 	}
 
-	return dockerConnectedFunc
+	// Initialize host log file tailers if configured
+	var fileTailerManager *collector.FileTailerManager
+	if logIngestor != nil && len(cfg.Logs.Files) > 0 {
+		loc, err := time.LoadLocation(cfg.Logs.DefaultTimezone)
+		if err != nil {
+			loc = time.UTC
+		}
+		fileTailerManager = collector.NewFileTailerManager(collector.FileTailerConfig{
+			Files:          cfg.Logs.Files,
+			ConfigDB:       store.Config,
+			Sink:           logIngestor,
+			MaxSources:     cfg.Cache.MaxSources,
+			MaxLineBytes:   65536,
+			DefaultTZ:      loc,
+			PollInterval:   250 * time.Millisecond,
+			RescanInterval: 30 * time.Second,
+			FlushInterval:  3 * time.Second,
+		})
+		fileTailerManager.Start(ctx)
+		log.Printf("Host file tailer started (%d configured sources)", len(cfg.Logs.Files))
+	}
+
+	stopFn := func() {
+		if dockerLogManager != nil {
+			dockerLogManager.Stop()
+		}
+		if fileTailerManager != nil {
+			fileTailerManager.Stop()
+		}
+	}
+
+	return &collectorHandles{
+		dockerConnectedFunc: dockerConnectedFunc,
+		stop:                stopFn,
+	}
 }
 
 // cleanupComponents bundles cleanup subsystem objects.
@@ -312,17 +402,75 @@ func bootstrapCleanup(ctx context.Context, cfg *config.Config, store *db.Store) 
 	}, stopFn, nil
 }
 
-// bootstrapLogEngine initializes tail cache and query engine for logs.
-func bootstrapLogEngine(cfg *config.Config) (*logs.TailCache, *logs.LogQueryEngine, error) {
+// logSubsystem bundles all log infrastructure handles.
+type logSubsystem struct {
+	idxMgr    *logs.IndexManager
+	chunkMgr  *logs.ChunkWriterManager
+	tailCache *logs.TailCache
+	logEngine *logs.LogQueryEngine
+	ingestor  *logs.LogIngestor
+}
+
+// bootstrapLogs initializes the complete log storage, indexing, tail cache, query engine, and ingestor.
+func bootstrapLogs(ctx context.Context, cfg *config.Config, store *db.Store, logEvaluator *alert.LogEvaluator) (*logSubsystem, func(), error) {
+	logsDir := filepath.Join(cfg.Storage.Path, "logs")
+	if err := os.MkdirAll(logsDir, 0750); err != nil {
+		return nil, nil, fmt.Errorf("failed to create logs directory: %w", err)
+	}
+
+	idxMgr := logs.NewIndexManager(logsDir)
+
+	chunkCfg := logs.ChunkWriterConfig{
+		BaseDir:          logsDir,
+		BlockTargetBytes: 64 * 1024,
+		FlushInterval:    3 * time.Second,
+		MaxOpenFiles:     64,
+		ZstdLevel:        zstd.SpeedDefault,
+		OnBlockFlushed: func(meta logs.BlockMeta) {
+			_ = idxMgr.AppendBlock(meta)
+		},
+	}
+	chunkMgr, err := logs.NewChunkWriterManager(chunkCfg)
+	if err != nil {
+		_ = idxMgr.Close()
+		return nil, nil, fmt.Errorf("failed to initialize chunk writer manager: %w", err)
+	}
+
 	tailCache := logs.NewTailCache(cfg.Cache.MaxSources, cfg.Cache.LogTailLines)
+
 	logEngine, err := logs.NewLogQueryEngine(logs.LogQueryEngineConfig{
-		BaseDir:   filepath.Join(cfg.Storage.Path, "logs"),
-		TailCache: tailCache,
+		BaseDir:     logsDir,
+		TailCache:   tailCache,
+		IndexReader: logs.NewIndexReader(logsDir),
 	})
 	if err != nil {
+		_ = chunkMgr.Close(context.Background())
+		_ = idxMgr.Close()
 		return nil, nil, fmt.Errorf("failed to initialize log query engine: %w", err)
 	}
-	return tailCache, logEngine, nil
+
+	ingestor := logs.NewLogIngestor(logs.LogIngestorConfig{
+		TailCache:   tailCache,
+		ChunkWriter: chunkMgr,
+		Evaluator:   logEvaluator,
+		QueueCap:    8192,
+	})
+
+	cleanupFn := func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = ingestor.Close(closeCtx)
+		_ = chunkMgr.Close(closeCtx)
+		_ = idxMgr.Close()
+	}
+
+	return &logSubsystem{
+		idxMgr:    idxMgr,
+		chunkMgr:  chunkMgr,
+		tailCache: tailCache,
+		logEngine: logEngine,
+		ingestor:  ingestor,
+	}, cleanupFn, nil
 }
 
 // serverParams bundles arguments required to construct the API server.
