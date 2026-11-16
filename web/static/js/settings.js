@@ -84,18 +84,27 @@
       },
 
       async triggerCleanup() {
+        this.closeConfirmRun();
         this.manualRunLoading = true;
+        store.toast.show('Retention cleanup started...', 'info', 3000);
         try {
           const res = await store.apiFetch('/api/v1/system/cleanup/run?dry_run=false', {
             method: 'POST'
           });
-          store.toast.show(
-            'Cleanup completed: reclaimed ' + formatBytes(res.bytes_reclaimed || 0) +
-            ' (' + (res.logs_deleted || 0) + ' logs, ' + (res.metrics_deleted || 0) + ' metric rows)',
-            'success',
-            5000
-          );
-          this.confirmRunModalOpen = false;
+          if (res && res.status === 'blocked') {
+            store.toast.show(
+              'Cleanup blocked by delivery policy: ' + (res.report_detail || 'report delivery failed'),
+              'warning',
+              7000
+            );
+          } else {
+            store.toast.show(
+              'Cleanup completed: reclaimed ' + formatBytes((res && res.bytes_reclaimed) || 0) +
+              ' (' + ((res && res.logs_deleted) || 0) + ' logs, ' + ((res && res.metrics_deleted) || 0) + ' metric rows)',
+              'success',
+              5000
+            );
+          }
           await this.fetchHistory();
           await store.loadSettings();
         } catch (err) {

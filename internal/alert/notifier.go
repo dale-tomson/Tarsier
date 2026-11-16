@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"strings"
 	"sync"
@@ -17,11 +18,11 @@ import (
 
 // Notification represents an alert delivery payload for outbound notifiers.
 type Notification struct {
-	EventID  int64             // Optional alert_event.id for updating notify_status in config.db
+	EventID  int64 // Optional alert_event.id for updating notify_status in config.db
 	Rule     string
 	Target   string
-	Severity string            // "info" | "warning" | "critical"
-	State    string            // "firing" | "resolved"
+	Severity string // "info" | "warning" | "critical"
+	State    string // "firing" | "resolved"
 	Summary  string
 	Details  map[string]string
 	At       time.Time
@@ -210,18 +211,25 @@ func (d *Dispatcher) sendWithRetries(ctx context.Context, n Notifier, notif Noti
 	}
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+		start := time.Now()
+		log.Printf("[alert] [%s] dispatching notification for rule %q (target=%s, severity=%s, state=%s) attempt %d/%d...",
+			n.Name(), notif.Rule, notif.Target, notif.Severity, notif.State, attempt+1, maxAttempts)
+
 		attemptCtx, cancel := context.WithTimeout(ctx, d.attemptTimeout)
 		err := n.Send(attemptCtx, notif)
 		cancel()
 
 		if err == nil {
+			log.Printf("[alert] [%s] notification successfully delivered in %v", n.Name(), time.Since(start))
 			return nil
 		}
 		lastErr = err
+		log.Printf("[alert] [%s] notification attempt %d/%d failed: %v", n.Name(), attempt+1, maxAttempts, err)
 
 		// Permanent errors are not retried
 		var permErr PermanentError
 		if errors.As(err, &permErr) {
+			log.Printf("[alert] [%s] permanent error encountered, aborting retries", n.Name())
 			return lastErr
 		}
 
@@ -243,6 +251,7 @@ func (d *Dispatcher) sendWithRetries(ctx context.Context, n Notifier, notif Noti
 			delay = base + jitter
 		}
 
+		log.Printf("[alert] [%s] waiting %v before next attempt...", n.Name(), delay)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -255,11 +264,11 @@ func (d *Dispatcher) sendWithRetries(ctx context.Context, n Notifier, notif Noti
 
 // deliveryTracker aggregates multi-channel results for a Notification with EventID > 0.
 type deliveryTracker struct {
-	eventID  int64
-	store    *db.Store
-	mu       sync.Mutex
-	pending  int
-	results  map[string]error
+	eventID int64
+	store   *db.Store
+	mu      sync.Mutex
+	pending int
+	results map[string]error
 }
 
 func (dt *deliveryTracker) onComplete(channel string, err error) {

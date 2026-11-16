@@ -383,3 +383,115 @@ func TestSMTPReportSender_MultipartMixedAttachment(t *testing.T) {
 		t.Errorf("expected attachment '# Attached Report Bytes', got %q", string(decodedBytes))
 	}
 }
+
+func TestRedactSecrets(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{
+			input:    "POST https://discord.com/api/webhooks/123456789/AbCdEfGhIjKlMnOpQrStUvWxYz failed: 404",
+			expected: "POST https://discord.com/api/webhooks/123456789/*** failed: 404",
+		},
+		{
+			input:    "dial tcp://admin:supersecret@smtp.example.com:587: connection refused",
+			expected: "dial tcp://admin:***@smtp.example.com:587: connection refused",
+		},
+		{
+			input:    "normal error message without secrets",
+			expected: "normal error message without secrets",
+		},
+	}
+
+	for _, tc := range tests {
+		got := RedactSecrets(tc.input)
+		if got != tc.expected {
+			t.Errorf("RedactSecrets(%q) = %q, want %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestSMTPReportSender_HangingServerDeadline(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+
+	// Mock server that never sends 220 greeting banner
+	sender := NewSMTPReportSender(config.EmailNotifierConfig{
+		Enabled:  true,
+		SMTPHost: "smtp.mock.local",
+		SMTPPort: 587,
+		Security: "starttls",
+		From:     "tarsier@local",
+		To:       []string{"ops@local"},
+	}, WithCustomDialer(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return clientConn, nil
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	payload := ReportPayload{
+		Format:       "markdown",
+		Filename:     "report.md",
+		BodyText:     "Report body",
+		SummaryTitle: "Notice",
+	}
+
+	start := time.Now()
+	err := sender.SendReport(ctx, payload)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error from hanging SMTP server, got nil")
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("expected timeout within ~200ms, took %v", elapsed)
+	}
+}
+
+func TestSMTPReportSender_MissingSTARTTLSError(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+
+	go func() {
+		defer serverConn.Close()
+		r := bufio.NewReader(serverConn)
+		w := bufio.NewWriter(serverConn)
+
+		_, _ = fmt.Fprintf(w, "220 mock.smtp ESMTP\r\n")
+		_ = w.Flush()
+
+		line, _ := r.ReadString('\n')
+		if strings.HasPrefix(line, "EHLO") || strings.HasPrefix(line, "HELO") {
+			// Reply without STARTTLS extension
+			_, _ = fmt.Fprintf(w, "250-mock.smtp\r\n250 SIZE 35882577\r\n")
+			_ = w.Flush()
+		}
+	}()
+
+	sender := NewSMTPReportSender(config.EmailNotifierConfig{
+		Enabled:  true,
+		SMTPHost: "smtp.mock.local",
+		SMTPPort: 587,
+		Security: "starttls",
+		From:     "tarsier@local",
+		To:       []string{"ops@local"},
+	}, WithCustomDialer(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return clientConn, nil
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	err := sender.SendReport(ctx, ReportPayload{
+		Format:       "markdown",
+		BodyText:     "test",
+		SummaryTitle: "Notice",
+	})
+
+	if err == nil {
+		t.Fatal("expected error when STARTTLS is required but not advertised, got nil")
+	}
+	if !strings.Contains(err.Error(), "STARTTLS") {
+		t.Errorf("expected error to mention STARTTLS, got %v", err)
+	}
+}

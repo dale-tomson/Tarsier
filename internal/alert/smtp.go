@@ -166,6 +166,12 @@ func (s *SMTPNotifier) connect(ctx context.Context, addr, secMode, host string, 
 		if err != nil {
 			return nil, fmt.Errorf("tls dial %s: %w", addr, err)
 		}
+		deadline := time.Now().Add(25 * time.Second)
+		if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+		}
+		_ = rawConn.SetDeadline(deadline)
+
 		tlsConn := tls.Client(rawConn, tlsCfg)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
 			_ = rawConn.Close()
@@ -178,6 +184,11 @@ func (s *SMTPNotifier) connect(ctx context.Context, addr, secMode, host string, 
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
+	deadline := time.Now().Add(25 * time.Second)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	_ = rawConn.SetDeadline(deadline)
 
 	client, err := smtp.NewClient(rawConn, host)
 	if err != nil {
@@ -191,6 +202,9 @@ func (s *SMTPNotifier) connect(ctx context.Context, addr, secMode, host string, 
 				_ = client.Close()
 				return nil, fmt.Errorf("starttls negotiation %s: %w", addr, err)
 			}
+		} else {
+			_ = client.Close()
+			return nil, fmt.Errorf("smtp server %s does not advertise STARTTLS extension", addr)
 		}
 	}
 
