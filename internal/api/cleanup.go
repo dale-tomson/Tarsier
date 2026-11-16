@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	htmltmpl "html/template"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -169,8 +170,8 @@ func (s *Server) handleCleanupHistory(w http.ResponseWriter, r *http.Request) {
 	items := make([]CleanupHistoryItem, 0)
 	for rows.Next() {
 		var (
-			item                     CleanupHistoryItem
-			dryRunInt                int
+			item                      CleanupHistoryItem
+			dryRunInt                 int
 			startedUnix, finishedUnix int64
 		)
 
@@ -255,16 +256,22 @@ func (s *Server) handleCleanupRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dryRun := r.URL.Query().Get("dry_run") == "true"
+	log.Printf("[api] cleanup run requested (trigger=manual, dry_run=%v)", dryRun)
+
 	result, err := s.cleanupManager.Run(r.Context(), "manual", dryRun)
 	if err != nil {
 		if errors.Is(err, cleanup.ErrCleanupAlreadyRunning) {
+			log.Printf("[api] cleanup run conflict: already running")
 			auth.WriteJSONError(w, http.StatusConflict, "cleanup_in_progress", "a cleanup run is already active")
 			return
 		}
+		log.Printf("[api] cleanup run failed: %v", err)
 		auth.WriteJSONError(w, http.StatusInternalServerError, "execution_error", err.Error())
 		return
 	}
 
+	log.Printf("[api] cleanup run completed (status=%s, duration=%dms, logs_deleted=%d, bytes_reclaimed=%d)",
+		result.Status, result.DurationMs, result.LogsDeleted, result.BytesReclaimed)
 	auth.WriteJSON(w, http.StatusOK, result)
 }
 

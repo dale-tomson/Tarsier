@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,6 +135,8 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 	defer m.running.Store(false)
 
 	startedAt := time.Now().UTC()
+	log.Printf("[cleanup] [%s] cycle started (dry_run=%v)", trigger, dryRun)
+
 	result := CleanupRunResult{
 		Trigger:      trigger,
 		DryRun:       dryRun,
@@ -148,8 +151,10 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 		result.FinishedAt = time.Now().UTC()
 		result.DurationMs = result.FinishedAt.Sub(startedAt).Milliseconds()
 		_ = m.persistRunRecord(ctx, &result)
+		log.Printf("[cleanup] [%s] planning failed: %v", trigger, err)
 		return result, fmt.Errorf("plan error: %w", err)
 	}
+	log.Printf("[cleanup] [%s] plan computed: %d expired chunk files discovered", trigger, len(plan.ExpiredChunks))
 
 	// 2. Build PreCleanupReport
 	var report PreCleanupReport
@@ -159,6 +164,7 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 			result.FinishedAt = time.Now().UTC()
 			result.DurationMs = result.FinishedAt.Sub(startedAt).Milliseconds()
 			_ = m.persistRunRecord(ctx, &result)
+			log.Printf("[cleanup] [%s] report generation failed: %v", trigger, err)
 			return result, fmt.Errorf("build report error: %w", err)
 		}
 	} else {
@@ -168,6 +174,8 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 		}
 	}
 	result.Report = &report
+	log.Printf("[cleanup] [%s] pre-cleanup report generated: %d lines slated for purge (%s across %d sources)",
+		trigger, report.TotalLogsPurged, FormatBytes(report.TotalBytesReclaim), len(report.Sources))
 
 	// Render report
 	format := strings.ToLower(m.cfg.Cleanup.Report.Format)
@@ -219,6 +227,8 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 			result.FinishedAt = time.Now().UTC()
 			result.DurationMs = result.FinishedAt.Sub(startedAt).Milliseconds()
 			_ = m.persistRunRecord(ctx, &result)
+			log.Printf("[cleanup] [%s] execution blocked by delivery policy (overall_status=%s, should_proceed=%v, details=%q)",
+				trigger, result.ReportStatus, delivery.ShouldProceed, result.ReportDetail)
 			return result, nil
 		}
 	}
@@ -231,6 +241,8 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 		result.FinishedAt = time.Now().UTC()
 		result.DurationMs = result.FinishedAt.Sub(startedAt).Milliseconds()
 		_ = m.persistRunRecord(ctx, &result)
+		log.Printf("[cleanup] [%s] [dry-run] simulated run complete: would reclaim %s across %d lines (duration=%dms)",
+			trigger, FormatBytes(result.BytesReclaimed), result.LogsDeleted, result.DurationMs)
 		return result, nil
 	}
 
@@ -241,10 +253,13 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 		result.FinishedAt = time.Now().UTC()
 		result.DurationMs = result.FinishedAt.Sub(startedAt).Milliseconds()
 		_ = m.persistRunRecord(ctx, &result)
+		log.Printf("[cleanup] [%s] chunk deletion failed: %v", trigger, err)
 		return result, fmt.Errorf("delete expired chunks: %w", err)
 	}
 	result.LogsDeleted = logsDeleted
 	result.BytesReclaimed = bytesReclaimed
+	log.Printf("[cleanup] [%s] unlinked %d expired chunks: %d lines deleted, %s reclaimed",
+		trigger, len(plan.ExpiredChunks), logsDeleted, FormatBytes(bytesReclaimed))
 
 	// B. Emergency size-cap check
 	if logsMaxSize, pErr := config.ParseBytes(m.cfg.Storage.LogsMaxSize); pErr == nil && logsMaxSize > 0 {
@@ -252,6 +267,10 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 		_, capBytes, capLines, _ := m.executor.EnforceLogsSizeCap(logsMaxSize, todayUTC)
 		result.BytesReclaimed += capBytes
 		result.LogsDeleted += capLines
+		if capBytes > 0 || capLines > 0 {
+			log.Printf("[cleanup] [%s] logs size cap enforced: reclaimed %s across %d lines",
+				trigger, FormatBytes(capBytes), capLines)
+		}
 	}
 
 	// C. Prune Metrics DB rows
@@ -260,6 +279,7 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 		result.FinishedAt = time.Now().UTC()
 		result.DurationMs = result.FinishedAt.Sub(startedAt).Milliseconds()
 		_ = m.persistRunRecord(ctx, &result)
+		log.Printf("[cleanup] [%s] metrics prune failed: %v", trigger, err)
 		return result, fmt.Errorf("prune metrics: %w", err)
 	}
 	result.MetricsDeleted = metricsPruned
@@ -270,13 +290,19 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 		result.FinishedAt = time.Now().UTC()
 		result.DurationMs = result.FinishedAt.Sub(startedAt).Milliseconds()
 		_ = m.persistRunRecord(ctx, &result)
+		log.Printf("[cleanup] [%s] events prune failed: %v", trigger, err)
 		return result, fmt.Errorf("prune events: %w", err)
 	}
 	result.EventsDeleted = eventsPruned
+	log.Printf("[cleanup] [%s] database rows pruned: %d metrics rows, %d container event rows",
+		trigger, metricsPruned, eventsPruned)
 
 	// 6. Post-Cleanup Database Maintenance
 	if m.maintainer != nil {
+		maintStart := time.Now()
+		log.Printf("[cleanup] [%s] running database compaction & maintenance (vacuum, optimize, checkpoint)...", trigger)
 		_, _ = m.maintainer.MaintainAll(ctx)
+		log.Printf("[cleanup] [%s] database maintenance completed in %v", trigger, time.Since(maintStart))
 	}
 
 	// 7. Record completed run
@@ -284,6 +310,9 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 	result.FinishedAt = time.Now().UTC()
 	result.DurationMs = result.FinishedAt.Sub(startedAt).Milliseconds()
 	_ = m.persistRunRecord(ctx, &result)
+
+	log.Printf("[cleanup] [%s] cycle finished in %dms (status=%s, logs_deleted=%d, metrics_deleted=%d, bytes_reclaimed=%s)",
+		trigger, result.DurationMs, result.Status, result.LogsDeleted, result.MetricsDeleted, FormatBytes(result.BytesReclaimed))
 
 	return result, nil
 }
@@ -419,12 +448,15 @@ func (m *CleanupManager) Start(ctx context.Context) {
 						return nil
 					})
 					if totalBytes > logsMaxSize {
+						log.Printf("[cleanup] watchdog: storage size (%s) exceeded logs_max_size (%s); triggering emergency cleanup",
+							FormatBytes(totalBytes), FormatBytes(logsMaxSize))
 						_, _ = m.Run(ctx, "emergency", false)
 					}
 				}
 
 				// 2. Check daily schedule (e.g. 03:00 UTC)
 				if now.UTC().Hour() == 3 && now.UTC().Minute() == 0 {
+					log.Printf("[cleanup] scheduler: daily retention cleanup triggered (03:00 UTC)")
 					_, _ = m.Run(ctx, "scheduled", false)
 				}
 			}

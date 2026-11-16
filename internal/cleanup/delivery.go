@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net"
 	"net/http"
+	"net/mail"
 	"net/smtp"
 	"net/textproto"
 	"net/url"
@@ -125,12 +127,15 @@ func (d *ReportDeliverer) Deliver(ctx context.Context, payload ReportPayload, is
 	}
 
 	if !enabled || len(d.cfg.Channels) == 0 {
+		log.Printf("[cleanup] pre-cleanup report delivery skipped (enabled=%v, channels=%d)", enabled, len(d.cfg.Channels))
 		return DeliverySummary{
 			OverallStatus: "skipped",
 			ShouldProceed: true,
 			WarningActive: d.warningActive.Load(),
 		}, nil
 	}
+
+	log.Printf("[cleanup] delivering pre-cleanup report to %d channel(s): %v (emergency=%v)", len(d.cfg.Channels), d.cfg.Channels, isEmergency)
 
 	minAttempts := d.cfg.MinAttempts
 	if minAttempts < 2 {
@@ -157,6 +162,7 @@ func (d *ReportDeliverer) Deliver(ctx context.Context, payload ReportPayload, is
 			outcome.Attempts = 1
 			outcome.Succeeded = false
 			outcome.LastError = fmt.Sprintf("notifier channel %q not configured", ch)
+			log.Printf("[cleanup] channel %q has no sender configured", ch)
 			summary.Outcomes = append(summary.Outcomes, outcome)
 			continue
 		}
@@ -164,24 +170,35 @@ func (d *ReportDeliverer) Deliver(ctx context.Context, payload ReportPayload, is
 		for attempt := 1; attempt <= minAttempts; attempt++ {
 			if ctx.Err() != nil {
 				outcome.LastError = ctx.Err().Error()
+				log.Printf("[cleanup] [%s] context cancelled: %v", ch, ctx.Err())
 				break
 			}
 
 			outcome.Attempts = attempt
-			err := sender.SendReport(ctx, payload)
+			log.Printf("[cleanup] [%s] dispatching pre-cleanup report (attempt %d/%d)...", ch, attempt, minAttempts)
+
+			attemptCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+			err := sender.SendReport(attemptCtx, payload)
+			cancel()
+
 			if err == nil {
 				outcome.Succeeded = true
 				outcome.LastError = ""
 				succeededCount++
+				log.Printf("[cleanup] [%s] report delivered successfully on attempt %d", ch, attempt)
 				break
 			}
 
 			outcome.LastError = RedactSecrets(err.Error())
+			log.Printf("[cleanup] [%s] attempt %d/%d failed: %s", ch, attempt, minAttempts, outcome.LastError)
+
 			if errors.Is(err, ErrPermanentConfig) {
+				log.Printf("[cleanup] [%s] permanent configuration error encountered; skipping retries", ch)
 				break
 			}
 
 			if attempt < minAttempts {
+				log.Printf("[cleanup] [%s] sleeping %v before retry...", ch, retryDelay)
 				if sErr := d.sleeper(ctx, retryDelay); sErr != nil {
 					outcome.LastError = sErr.Error()
 					break
@@ -198,6 +215,7 @@ func (d *ReportDeliverer) Deliver(ctx context.Context, payload ReportPayload, is
 		summary.WarningActive = false
 		summary.ShouldProceed = true
 		d.warningActive.Store(false)
+		log.Printf("[cleanup] pre-cleanup report successfully delivered to all %d channel(s)", totalChannels)
 		return summary, nil
 	}
 
@@ -219,20 +237,45 @@ func (d *ReportDeliverer) Deliver(ctx context.Context, payload ReportPayload, is
 		summary.ShouldProceed = true
 	}
 
+	log.Printf("[cleanup] report delivery finished: overall_status=%s, succeeded=%d/%d, should_proceed=%v",
+		summary.OverallStatus, succeededCount, totalChannels, summary.ShouldProceed)
+
 	return summary, nil
 }
 
-// RedactSecrets masks sensitive tokens from error strings.
+// RedactSecrets masks sensitive tokens from error and log strings.
 func RedactSecrets(msg string) string {
 	// Redact Discord webhooks: https://discord.com/api/webhooks/<id>/<token>
 	if idx := strings.Index(msg, "api/webhooks/"); idx != -1 {
 		parts := strings.Split(msg[idx:], "/")
-		if len(parts) >= 3 {
+		if len(parts) >= 4 {
+			secretToken := strings.Fields(parts[3])[0]
+			msg = strings.ReplaceAll(msg, secretToken, "***")
+		} else if len(parts) >= 3 {
 			secretToken := strings.Fields(parts[2])[0]
 			msg = strings.ReplaceAll(msg, secretToken, "***")
 		}
 	}
+	// Redact embedded user:password@
+	if atIdx := strings.Index(msg, "@"); atIdx != -1 {
+		colonIdx := strings.LastIndex(msg[:atIdx], ":")
+		slashIdx := strings.LastIndex(msg[:atIdx], "//")
+		if colonIdx != -1 && colonIdx > slashIdx {
+			secret := msg[colonIdx+1 : atIdx]
+			if len(secret) > 0 {
+				msg = strings.ReplaceAll(msg, secret, "***")
+			}
+		}
+	}
 	return msg
+}
+
+func redactUsername(u string) string {
+	u = strings.TrimSpace(u)
+	if len(u) <= 2 {
+		return "***"
+	}
+	return u[:2] + "***"
 }
 
 // --- Discord Report Sender ---
@@ -268,6 +311,9 @@ func (s *DiscordReportSender) SendReport(ctx context.Context, payload ReportPayl
 	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
 		return fmt.Errorf("%w: invalid discord webhook_url: %v", ErrPermanentConfig, err)
 	}
+
+	start := time.Now()
+	log.Printf("[cleanup] [discord] dispatching pre-cleanup report (payload=%d bytes)", len(payload.Attachment))
 
 	// Build multipart request body
 	var body bytes.Buffer
@@ -354,20 +400,27 @@ func (s *DiscordReportSender) SendReport(ctx context.Context, payload ReportPayl
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("discord post error: %w", err)
+		err = fmt.Errorf("discord post error: %w", err)
+		log.Printf("[cleanup] [discord] failed: %s", RedactSecrets(err.Error()))
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
 		retryAfter := resp.Header.Get("Retry-After")
-		return fmt.Errorf("discord rate limited (retry-after: %s)", retryAfter)
+		err = fmt.Errorf("discord rate limited (retry-after: %s)", retryAfter)
+		log.Printf("[cleanup] [discord] failed: %s", RedactSecrets(err.Error()))
+		return err
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("discord webhook returned HTTP %d: %s", resp.StatusCode, string(respBytes))
+		err = fmt.Errorf("discord webhook returned HTTP %d: %s", resp.StatusCode, string(respBytes))
+		log.Printf("[cleanup] [discord] failed: %s", RedactSecrets(err.Error()))
+		return err
 	}
 
+	log.Printf("[cleanup] [discord] pre-cleanup report successfully delivered in %v", time.Since(start))
 	return nil
 }
 
@@ -412,20 +465,76 @@ func (s *SMTPReportSender) Name() string {
 	return "email"
 }
 
+// ParseRecipients normalizes and splits email recipient entries, supporting
+// comma-separated, semicolon-separated, angle-bracketed, and display-name addresses.
+func ParseRecipients(to []string) []string {
+	var recipients []string
+	seen := make(map[string]bool)
+
+	for _, entry := range to {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+
+		// Try parsing as standard mail address list (handles commas, display names, angle brackets)
+		if addrs, err := mail.ParseAddressList(entry); err == nil && len(addrs) > 0 {
+			for _, a := range addrs {
+				clean := strings.TrimSpace(a.Address)
+				if clean != "" && !seen[clean] {
+					seen[clean] = true
+					recipients = append(recipients, clean)
+				}
+			}
+			continue
+		}
+
+		// Fallback: split by commas and semicolons
+		parts := strings.FieldsFunc(entry, func(r rune) bool {
+			return r == ',' || r == ';'
+		})
+		for _, p := range parts {
+			clean := strings.Trim(strings.TrimSpace(p), "<>\"' ")
+			if clean != "" && !seen[clean] {
+				seen[clean] = true
+				recipients = append(recipients, clean)
+			}
+		}
+	}
+	return recipients
+}
+
 func (s *SMTPReportSender) SendReport(ctx context.Context, payload ReportPayload) error {
 	host := strings.TrimSpace(s.cfg.SMTPHost)
 	if host == "" {
 		return fmt.Errorf("%w: smtp_host is empty", ErrPermanentConfig)
 	}
-	if len(s.cfg.To) == 0 {
+
+	recipients := ParseRecipients(s.cfg.To)
+	if len(recipients) == 0 {
 		return fmt.Errorf("%w: email to recipients list is empty", ErrPermanentConfig)
+	}
+
+	secMode := strings.ToLower(strings.TrimSpace(s.cfg.Security))
+	if secMode == "" {
+		secMode = "starttls"
 	}
 
 	port := s.cfg.SMTPPort
 	if port <= 0 {
-		port = 587
+		switch secMode {
+		case "tls":
+			port = 465
+		case "none":
+			port = 25
+		default:
+			port = 587
+		}
 	}
 	addr := fmt.Sprintf("%s:%d", host, port)
+
+	start := time.Now()
+	log.Printf("[cleanup] [email] connecting to SMTP server %s (security=%s, recipients=%d)", addr, secMode, len(recipients))
 
 	// Build multipart/mixed message
 	var msg bytes.Buffer
@@ -442,7 +551,7 @@ func (s *SMTPReportSender) SendReport(ctx context.Context, payload ReportPayload
 	}
 
 	msg.WriteString(fmt.Sprintf("From: %s\r\n", from))
-	msg.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(s.cfg.To, ", ")))
+	msg.WriteString(fmt.Sprintf("To: %s\r\n", strings.Join(recipients, ", ")))
 	msg.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
 	msg.WriteString("MIME-Version: 1.0\r\n")
 	msg.WriteString(fmt.Sprintf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", boundary))
@@ -496,68 +605,111 @@ func (s *SMTPReportSender) SendReport(ctx context.Context, payload ReportPayload
 	if s.customDialer != nil {
 		conn, err = s.customDialer(ctx, "tcp", addr)
 	} else {
-		var dialer net.Dialer
+		dialer := net.Dialer{Timeout: 10 * time.Second}
 		conn, err = dialer.DialContext(ctx, "tcp", addr)
 	}
 	if err != nil {
-		return fmt.Errorf("dial smtp %s: %w", addr, err)
+		err = fmt.Errorf("dial smtp %s: %w", addr, err)
+		log.Printf("[cleanup] [email] failed: %s", RedactSecrets(err.Error()))
+		return err
 	}
 	defer conn.Close()
 
-	security := strings.ToLower(s.cfg.Security)
+	// Enforce socket deadline to protect against hanging servers
+	deadline := time.Now().Add(25 * time.Second)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	_ = conn.SetDeadline(deadline)
+
 	tlsConf := s.customTLS
 	if tlsConf == nil {
-		tlsConf = &tls.Config{ServerName: host}
+		tlsConf = &tls.Config{
+			ServerName: host,
+			MinVersion: tls.VersionTLS12,
+		}
 	}
 
-	if security == "tls" {
-		conn = tls.Client(conn, tlsConf)
+	if secMode == "tls" {
+		tlsConn := tls.Client(conn, tlsConf)
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			err = fmt.Errorf("tls handshake %s: %w", addr, err)
+			log.Printf("[cleanup] [email] failed: %s", RedactSecrets(err.Error()))
+			return err
+		}
+		conn = tlsConn
 	}
 
 	c, err := smtp.NewClient(conn, host)
 	if err != nil {
-		return fmt.Errorf("smtp client error: %w", err)
+		err = fmt.Errorf("smtp client error %s: %w", addr, err)
+		log.Printf("[cleanup] [email] failed: %s", RedactSecrets(err.Error()))
+		return err
 	}
 	defer c.Close()
 
-	if security == "starttls" {
+	if secMode == "starttls" {
 		if ok, _ := c.Extension("STARTTLS"); ok {
 			if err := c.StartTLS(tlsConf); err != nil {
-				return fmt.Errorf("starttls error: %w", err)
+				err = fmt.Errorf("starttls error %s: %w", addr, err)
+				log.Printf("[cleanup] [email] failed: %s", RedactSecrets(err.Error()))
+				return err
 			}
+		} else {
+			err = fmt.Errorf("smtp server %s does not advertise STARTTLS extension", addr)
+			log.Printf("[cleanup] [email] failed: %s", RedactSecrets(err.Error()))
+			return err
 		}
 	}
 
-	if s.cfg.Username != "" && s.cfg.Password != "" {
+	if s.cfg.Username != "" || s.cfg.Password != "" {
 		auth := smtp.PlainAuth("", s.cfg.Username, s.cfg.Password, host)
 		if err := c.Auth(auth); err != nil {
-			return fmt.Errorf("smtp auth failed: %w", err)
+			err = fmt.Errorf("smtp auth failed: %w", err)
+			log.Printf("[cleanup] [email] failed: %s", RedactSecrets(err.Error()))
+			return err
 		}
+		log.Printf("[cleanup] [email] connected to %s, authenticated as %s", addr, redactUsername(s.cfg.Username))
+	} else {
+		log.Printf("[cleanup] [email] connected to %s (anonymous)", addr)
 	}
 
 	if err := c.Mail(from); err != nil {
-		return fmt.Errorf("smtp mail from error: %w", err)
+		err = fmt.Errorf("smtp mail from error: %w", err)
+		log.Printf("[cleanup] [email] failed: %s", RedactSecrets(err.Error()))
+		return err
 	}
 
-	for _, recipient := range s.cfg.To {
+	for _, recipient := range recipients {
 		if err := c.Rcpt(recipient); err != nil {
-			return fmt.Errorf("smtp rcpt to %s error: %w", recipient, err)
+			err = fmt.Errorf("smtp rcpt to %s error: %w", recipient, err)
+			log.Printf("[cleanup] [email] failed: %s", RedactSecrets(err.Error()))
+			return err
 		}
 	}
 
 	w, err := c.Data()
 	if err != nil {
-		return fmt.Errorf("smtp data command error: %w", err)
+		err = fmt.Errorf("smtp data command error: %w", err)
+		log.Printf("[cleanup] [email] failed: %s", RedactSecrets(err.Error()))
+		return err
 	}
 
 	if _, err := w.Write(msg.Bytes()); err != nil {
 		_ = w.Close()
-		return fmt.Errorf("smtp write error: %w", err)
+		err = fmt.Errorf("smtp write error: %w", err)
+		log.Printf("[cleanup] [email] failed: %s", RedactSecrets(err.Error()))
+		return err
 	}
 
 	if err := w.Close(); err != nil {
-		return fmt.Errorf("smtp close error: %w", err)
+		err = fmt.Errorf("smtp close error: %w", err)
+		log.Printf("[cleanup] [email] failed: %s", RedactSecrets(err.Error()))
+		return err
 	}
 
-	return c.Quit()
+	_ = c.Quit()
+
+	log.Printf("[cleanup] [email] pre-cleanup report successfully delivered to %d recipient(s) in %v", len(recipients), time.Since(start))
+	return nil
 }

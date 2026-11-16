@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"sort"
 	"strings"
@@ -68,10 +69,31 @@ func (s *SMTPNotifier) Send(ctx context.Context, n Notification) error {
 	}
 
 	var recipients []string
+	seen := make(map[string]bool)
 	for _, to := range s.cfg.To {
 		trimmed := strings.TrimSpace(to)
-		if trimmed != "" {
-			recipients = append(recipients, trimmed)
+		if trimmed == "" {
+			continue
+		}
+		if addrs, err := mail.ParseAddressList(trimmed); err == nil && len(addrs) > 0 {
+			for _, a := range addrs {
+				clean := strings.TrimSpace(a.Address)
+				if clean != "" && !seen[clean] {
+					seen[clean] = true
+					recipients = append(recipients, clean)
+				}
+			}
+			continue
+		}
+		parts := strings.FieldsFunc(trimmed, func(r rune) bool {
+			return r == ',' || r == ';'
+		})
+		for _, p := range parts {
+			clean := strings.Trim(strings.TrimSpace(p), "<>\"' ")
+			if clean != "" && !seen[clean] {
+				seen[clean] = true
+				recipients = append(recipients, clean)
+			}
 		}
 	}
 	if len(recipients) == 0 {
@@ -166,6 +188,12 @@ func (s *SMTPNotifier) connect(ctx context.Context, addr, secMode, host string, 
 		if err != nil {
 			return nil, fmt.Errorf("tls dial %s: %w", addr, err)
 		}
+		deadline := time.Now().Add(25 * time.Second)
+		if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+		}
+		_ = rawConn.SetDeadline(deadline)
+
 		tlsConn := tls.Client(rawConn, tlsCfg)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
 			_ = rawConn.Close()
@@ -178,6 +206,11 @@ func (s *SMTPNotifier) connect(ctx context.Context, addr, secMode, host string, 
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
+	deadline := time.Now().Add(25 * time.Second)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	_ = rawConn.SetDeadline(deadline)
 
 	client, err := smtp.NewClient(rawConn, host)
 	if err != nil {
@@ -191,6 +224,9 @@ func (s *SMTPNotifier) connect(ctx context.Context, addr, secMode, host string, 
 				_ = client.Close()
 				return nil, fmt.Errorf("starttls negotiation %s: %w", addr, err)
 			}
+		} else {
+			_ = client.Close()
+			return nil, fmt.Errorf("smtp server %s does not advertise STARTTLS extension", addr)
 		}
 	}
 

@@ -383,3 +383,244 @@ func TestSMTPReportSender_MultipartMixedAttachment(t *testing.T) {
 		t.Errorf("expected attachment '# Attached Report Bytes', got %q", string(decodedBytes))
 	}
 }
+
+func TestRedactSecrets(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{
+			input:    "POST https://discord.com/api/webhooks/123456789/AbCdEfGhIjKlMnOpQrStUvWxYz failed: 404",
+			expected: "POST https://discord.com/api/webhooks/123456789/*** failed: 404",
+		},
+		{
+			input:    "dial tcp://admin:supersecret@smtp.example.com:587: connection refused",
+			expected: "dial tcp://admin:***@smtp.example.com:587: connection refused",
+		},
+		{
+			input:    "normal error message without secrets",
+			expected: "normal error message without secrets",
+		},
+	}
+
+	for _, tc := range tests {
+		got := RedactSecrets(tc.input)
+		if got != tc.expected {
+			t.Errorf("RedactSecrets(%q) = %q, want %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestSMTPReportSender_HangingServerDeadline(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+
+	// Mock server that never sends 220 greeting banner
+	sender := NewSMTPReportSender(config.EmailNotifierConfig{
+		Enabled:  true,
+		SMTPHost: "smtp.mock.local",
+		SMTPPort: 587,
+		Security: "starttls",
+		From:     "tarsier@local",
+		To:       []string{"ops@local"},
+	}, WithCustomDialer(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return clientConn, nil
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	payload := ReportPayload{
+		Format:       "markdown",
+		Filename:     "report.md",
+		BodyText:     "Report body",
+		SummaryTitle: "Notice",
+	}
+
+	start := time.Now()
+	err := sender.SendReport(ctx, payload)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error from hanging SMTP server, got nil")
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("expected timeout within ~200ms, took %v", elapsed)
+	}
+}
+
+func TestSMTPReportSender_MissingSTARTTLSError(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+
+	go func() {
+		defer serverConn.Close()
+		r := bufio.NewReader(serverConn)
+		w := bufio.NewWriter(serverConn)
+
+		_, _ = fmt.Fprintf(w, "220 mock.smtp ESMTP\r\n")
+		_ = w.Flush()
+
+		line, _ := r.ReadString('\n')
+		if strings.HasPrefix(line, "EHLO") || strings.HasPrefix(line, "HELO") {
+			// Reply without STARTTLS extension
+			_, _ = fmt.Fprintf(w, "250-mock.smtp\r\n250 SIZE 35882577\r\n")
+			_ = w.Flush()
+		}
+	}()
+
+	sender := NewSMTPReportSender(config.EmailNotifierConfig{
+		Enabled:  true,
+		SMTPHost: "smtp.mock.local",
+		SMTPPort: 587,
+		Security: "starttls",
+		From:     "tarsier@local",
+		To:       []string{"ops@local"},
+	}, WithCustomDialer(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return clientConn, nil
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	err := sender.SendReport(ctx, ReportPayload{
+		Format:       "markdown",
+		BodyText:     "test",
+		SummaryTitle: "Notice",
+	})
+
+	if err == nil {
+		t.Fatal("expected error when STARTTLS is required but not advertised, got nil")
+	}
+	if !strings.Contains(err.Error(), "STARTTLS") {
+		t.Errorf("expected error to mention STARTTLS, got %v", err)
+	}
+}
+
+func TestParseRecipients(t *testing.T) {
+	tests := []struct {
+		input    []string
+		expected []string
+	}{
+		{
+			input:    []string{"dale@febinanddale.com,123daletomson@gmail.com"},
+			expected: []string{"dale@febinanddale.com", "123daletomson@gmail.com"},
+		},
+		{
+			input:    []string{"Dale Tomson <dale@febinanddale.com>", "ops@local"},
+			expected: []string{"dale@febinanddale.com", "ops@local"},
+		},
+		{
+			input:    []string{"a@x.com, b@x.com; c@x.com", "d@x.com"},
+			expected: []string{"a@x.com", "b@x.com", "c@x.com", "d@x.com"},
+		},
+		{
+			input:    []string{"a@x.com", "a@x.com", ""},
+			expected: []string{"a@x.com"},
+		},
+	}
+
+	for _, tc := range tests {
+		got := ParseRecipients(tc.input)
+		if len(got) != len(tc.expected) {
+			t.Fatalf("ParseRecipients(%v) length = %d, want %d (%v)", tc.input, len(got), len(tc.expected), got)
+		}
+		for i := range got {
+			if got[i] != tc.expected[i] {
+				t.Errorf("ParseRecipients(%v)[%d] = %q, want %q", tc.input, i, got[i], tc.expected[i])
+			}
+		}
+	}
+}
+
+func TestSMTPReportSender_CommaSeparatedRecipients(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	var rcptCommands []string
+	serverErr := make(chan error, 1)
+
+	go func() {
+		defer serverConn.Close()
+		r := bufio.NewReader(serverConn)
+		w := bufio.NewWriter(serverConn)
+
+		send := func(code int, msg string) {
+			_, _ = fmt.Fprintf(w, "%d %s\r\n", code, msg)
+			_ = w.Flush()
+		}
+
+		send(220, "mock.smtp")
+
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				serverErr <- err
+				return
+			}
+			line = strings.TrimSpace(line)
+
+			if strings.HasPrefix(line, "EHLO") || strings.HasPrefix(line, "HELO") {
+				send(250, "mock.smtp at your service")
+			} else if strings.HasPrefix(line, "MAIL FROM:") {
+				send(250, "OK")
+			} else if strings.HasPrefix(line, "RCPT TO:") {
+				rcptCommands = append(rcptCommands, line)
+				send(250, "OK")
+			} else if line == "DATA" {
+				send(354, "Go ahead")
+				for {
+					dataLine, dErr := r.ReadString('\n')
+					if dErr != nil {
+						serverErr <- dErr
+						return
+					}
+					if strings.TrimRight(dataLine, "\r\n") == "." {
+						break
+					}
+				}
+				send(250, "OK")
+			} else if line == "QUIT" {
+				send(221, "Bye")
+				serverErr <- nil
+				return
+			}
+		}
+	}()
+
+	sender := NewSMTPReportSender(config.EmailNotifierConfig{
+		Enabled:  true,
+		SMTPHost: "smtp.mock.local",
+		SMTPPort: 25,
+		Security: "none",
+		From:     "tarsier@local",
+		To:       []string{"dale@febinanddale.com,123daletomson@gmail.com"},
+	}, WithCustomDialer(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return clientConn, nil
+	}))
+
+	err := sender.SendReport(context.Background(), ReportPayload{
+		Format:       "markdown",
+		BodyText:     "test",
+		SummaryTitle: "Notice",
+	})
+	if err != nil {
+		t.Fatalf("SendReport failed: %v", err)
+	}
+
+	select {
+	case sErr := <-serverErr:
+		if sErr != nil {
+			t.Fatalf("mock server error: %v", sErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for mock SMTP session")
+	}
+
+	if len(rcptCommands) != 2 {
+		t.Fatalf("expected 2 distinct RCPT TO commands, got %d: %v", len(rcptCommands), rcptCommands)
+	}
+	if rcptCommands[0] != "RCPT TO:<dale@febinanddale.com>" {
+		t.Errorf("expected first RCPT TO:<dale@febinanddale.com>, got %q", rcptCommands[0])
+	}
+	if rcptCommands[1] != "RCPT TO:<123daletomson@gmail.com>" {
+		t.Errorf("expected second RCPT TO:<123daletomson@gmail.com>, got %q", rcptCommands[1])
+	}
+}
