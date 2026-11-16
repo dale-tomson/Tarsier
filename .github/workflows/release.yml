@@ -4,11 +4,10 @@ on:
   push:
     tags:
       - 'v*'
-      - 'beta-v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to cut (e.g. v1.0.0 or beta-v1.0.0)'
+        description: 'Release tag to cut (e.g. v1.0.0 or v0.0.1-beta)'
         required: true
         type: string
 
@@ -45,7 +44,7 @@ jobs:
 
           echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
 
-          if [[ "$TAG" == beta-v* ]]; then
+          if [[ "$TAG" =~ -(beta|alpha|rc) || "$TAG" == *beta* ]]; then
             echo "is_beta=true" >> "$GITHUB_OUTPUT"
             echo "Identified Beta pre-release tag: $TAG"
           else
