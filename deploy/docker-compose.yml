@@ -1,0 +1,62 @@
+services:
+  tarsier:
+    image: ghcr.io/dale-tomson/tarsier:${TARSIER_VERSION:-latest}
+    container_name: tarsier
+    restart: unless-stopped
+    pid: host
+    user: "0:0"
+    read_only: true
+    mem_limit: 256m
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Core application settings & Go runtime budget (< 256 MB cgroup target)
+      TARSIER_CONFIG: ${TARSIER_CONFIG:-/config/tarsier.yaml}
+      TARSIER_ADMIN_USER: ${TARSIER_ADMIN_USER:-admin}
+      GOMEMLIMIT: ${GOMEMLIMIT:-200MiB}
+      HOST_PROC: ${HOST_PROC:-/proc}
+      HOST_SYS: ${HOST_SYS:-/sys}
+      HOST_ROOT: ${HOST_ROOT:-/}
+
+      # Outbound Notification & Alert Channels
+      SMTP_ENABLED: ${SMTP_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-smtp.example.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      SMTP_USER: ${SMTP_USER:-alerts@example.com}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-Tarsier <alerts@example.com>}
+      SMTP_TO: ${SMTP_TO:-admin@example.com}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      HEARTBEAT_URL: ${HEARTBEAT_URL:-}
+    ports:
+      - "${TARSIER_PORT:-8080}:8080"
+    volumes:
+      # Mount configuration file (defaults to ./tarsier.yaml or custom file from .env)
+      - ${TARSIER_CONFIG_FILE:-./tarsier.yaml}:/config/tarsier.yaml:ro
+
+      # Persistent storage mount on host disk for SQLite databases (config.db, metrics.db)
+      # and append-only compressed log chunks (/data/logs/)
+      - ${TARSIER_DATA_DIR:-./data}:/data
+
+      # Read-only Docker Engine API socket for container discovery, resource metrics,
+      # lifecycle events, and log streaming
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+      # --- Bare-Metal Linux Host Telemetry Mounts ---
+      # On native Linux hosts, uncomment the 4 lines below to monitor the host machine's
+      # physical CPU, memory, storage disks, and network interfaces.
+      # (Also set HOST_PROC=/host/proc and HOST_SYS=/host/sys in your .env file).
+      #
+      # Note for macOS / Windows (Docker Desktop / OrbStack / Colima):
+      # Leave these commented out. Darwin/Windows host filesystems do not have /proc or /sys.
+      # Tarsier automatically gathers container metrics and VM telemetry without these mounts.
+      # - /proc:/host/proc:ro
+      # - /sys:/host/sys:ro
+      # - /:/host/root:ro,rslave
+      # - /var/log:/host/var/log:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m

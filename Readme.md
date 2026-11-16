@@ -148,8 +148,16 @@ The repository includes a ready-to-run `docker-compose.yml` and `.env.example` p
 
 ### Production Deployment
 
-For production single-server deployments:
+For production single-server deployments, pre-built multi-architecture container images are published to GitHub Container Registry (`ghcr.io/dale-tomson/tarsier:latest`).
 
+#### Option A: Quick One-Line Install (Recommended)
+Download and initialize the standalone deployment bundle automatically:
+```bash
+curl -fsSL https://raw.githubusercontent.com/dale-tomson/Tarsier/main/deploy/install.sh | bash
+```
+*(To pin a specific version, pass `-s -- -v v0.1.0`. See [deploy/README.md](deploy/README.md) for full installer options).*
+
+#### Option B: Manual Compose Setup
 1. **Generate Admin Password Hash:**
    Generate a strong bcrypt hash (cost factor 12) for the `admin` user:
    ```bash
@@ -157,12 +165,13 @@ For production single-server deployments:
    ```
    *(Note: Remember to escape `$` as `$$` when placing in `docker-compose.yml` or `.env` for Compose interpolation).*
 
-2. **Configure `.env` or `docker-compose.yml`:**
-   Copy `.env.example` to `.env` and set your production values:
+2. **Configure `.env` and `tarsier.yaml`:**
+   Copy the example templates from [`deploy/`](deploy/) or the repository root:
    ```bash
-   cp .env.example .env
+   cp deploy/.env.example .env
+   cp deploy/tarsier.example.yml tarsier.yaml
    ```
-   Or use the production compose definition:
+   Or use the standalone Compose definition from [`deploy/docker-compose.yml`](deploy/docker-compose.yml):
 ```yaml
 services:
   tarsier:
