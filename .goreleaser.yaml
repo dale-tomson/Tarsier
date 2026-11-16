@@ -1,0 +1,105 @@
+version: 2
+
+project_name: tarsier
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: tarsier
+    main: ./cmd/tarsier
+    binary: tarsier
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -tags=netgo
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -extldflags '-static'
+      - -X 'main.Version={{ .Version }}'
+      - -X 'main.Commit={{ .Commit }}'
+      - -X 'main.BuildDate={{ .Date }}'
+
+archives:
+  - id: tarsier-archive
+    builds:
+      - tarsier
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - Readme.md
+      - tarsier.example.yaml
+      - docker-compose.yml
+      - icon.svg
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+  groups:
+    - title: "✨ Features"
+      regexp: '^feat(\(.*\))?:'
+      order: 100
+    - title: "🐛 Bug Fixes"
+      regexp: '^fix(\(.*\))?:'
+      order: 200
+    - title: "⚡ Performance Improvements"
+      regexp: '^perf(\(.*\))?:'
+      order: 300
+    - title: "🔧 Maintenance & Refactoring"
+      regexp: '^(chore|refactor)(\(.*\))?:'
+      order: 400
+    - title: "📦 Dependency Updates"
+      regexp: '^build(\(.*\))?:'
+      order: 500
+    - title: "💬 Other Changes"
+      order: 999
+
+release:
+  github:
+    owner: dale-tomson
+    name: Tarsier
+  prerelease: auto
+  mode: replace
+  header: |
+    ## Tarsier Release `{{ .Tag }}`
+
+    A lightweight, self-hosted, single-server observability tool distributed as a single static Go binary and multi-arch container image.
+  footer: |
+    ---
+    ### 🐳 Docker Images
+    {{- if not .Prerelease }}
+    ```bash
+    # Pull multi-arch container image (linux/amd64, linux/arm64)
+    docker pull ghcr.io/dale-tomson/tarsier:latest
+    docker pull ghcr.io/dale-tomson/tarsier:{{ .Tag }}
+    ```
+    {{- else }}
+    > [!NOTE]
+    > Docker container images are not published for beta pre-releases. Use the downloadable static binaries below or build from source.
+    {{- end }}
+
+    ### 📦 Verify Assets
+    Compare sha256 checksums from `checksums.txt`:
+    ```bash
+    sha256sum -c checksums.txt
+    ```
+
+    **Full Changelog**: https://github.com/dale-tomson/Tarsier/compare/{{ .PreviousTag }}...{{ .Tag }}
