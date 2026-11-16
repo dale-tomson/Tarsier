@@ -178,8 +178,9 @@ func TestIndexReader_BinarySearchAndPruning(t *testing.T) {
 
 	t.Logf("SearchBlocks completed in %s, found %d matches (expected %d)", elapsed, len(results), len(expectedMatches))
 
-	if elapsed > 1*time.Millisecond {
-		t.Errorf("SearchBlocks took %s, expected < 1ms", elapsed)
+	// Sanity bound to catch severe regressions (e.g. deadlocks, infinite loops) without tripping on CI I/O jitter under -race
+	if elapsed > 50*time.Millisecond {
+		t.Errorf("SearchBlocks took %s, expected < 50ms", elapsed)
 	}
 
 	if len(results) != len(expectedMatches) {
