@@ -61,7 +61,12 @@ func TestLogsAPI_SourcesAndUnfilteredTail(t *testing.T) {
 			return err
 		}
 		s2ID, _ = res.LastInsertId()
-		return nil
+
+		_, err = tx.ExecContext(txCtx, `
+			INSERT INTO container (id, name, image, first_seen, last_seen, last_status)
+			VALUES ('c1', 'api', 'api:latest', 1700000000, 1700001000, 'running');
+		`)
+		return err
 	})
 	if err != nil {
 		t.Fatalf("seed sources failed: %v", err)
@@ -119,6 +124,9 @@ func TestLogsAPI_SourcesAndUnfilteredTail(t *testing.T) {
 	}
 	if apiSrc.BufferedLines != 15 {
 		t.Errorf("expected 15 buffered lines for container:api, got %d", apiSrc.BufferedLines)
+	}
+	if apiSrc.Status != "running" {
+		t.Errorf("expected status 'running' for container:api, got %q", apiSrc.Status)
 	}
 
 	nginxSrc, exists := sourceMap["file:nginx"]
