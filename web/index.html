@@ -1,23 +1,2288 @@
-<!DOCTYPE html><html lang="en" data-theme="auto"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Tarsier lightweight single-server observability"><title>Tarsier</title><link rel="icon" type="image/svg+xml" href="/static/icon.svg"><link rel="alternate icon" href="/static/icon.svg"><link rel="stylesheet" href="/static/vendor/pico.min.css"><link rel="stylesheet" href="/static/vendor/uPlot.min.css"><link rel="stylesheet" href="/static/css/app.css"><script src="/static/vendor/petite-vue.iife.js"></script><script src="/static/vendor/uPlot.iife.min.js"></script><script src="/static/js/components.js"></script><script src="/static/js/charts.js"></script><script src="/static/js/host.js"></script><script src="/static/js/containers.js"></script><script src="/static/js/logs.js"></script><script src="/static/js/alerts.js"></script><script src="/static/js/settings.js?v=2"></script></head><body v-scope><aside v-if="store.toast.visible" class="toast-container" aria-live="polite"><div class="toast" :class="'toast-' + store.toast.type"><span v-text="store.toast.message"></span><button class="toast-close" @click="store.toast.dismiss()" aria-label="Close notification">&times;</button></div></aside><dialog class="login-dialog" :open="!store.authenticated"><article><header style="display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-bottom: 1rem;"><img src="/static/icon.svg" alt="Tarsier Logo" style="height: 44px; width: auto;"><h3 style="margin-bottom: 0;">Sign In to Tarsier</h3></header><form @submit.prevent="store.login()"><label for="login-username">
-Username
-<input id="login-username" type="text" v-model="store.loginForm.username" placeholder="admin" required autofocus autocomplete="username"></label><label for="login-password">
-Password
-<input id="login-password" type="password" v-model="store.loginForm.password" placeholder="••••••••" required autocomplete="current-password"></label><p v-if="store.loginForm.error" class="badge badge-danger" style="display: block; margin-bottom: 1rem; text-align: center;" v-text="store.loginForm.error"></p><button type="submit" :aria-busy="store.loginForm.loading">Sign In</button></form></article></dialog><div v-if="store.authenticated"><nav class="app-nav"><ul><li><a href="#overview" class="brand-title" @click="store.setRoute('overview')"><img src="/static/icon.svg" alt="Tarsier Logo" class="brand-logo"><strong>Tarsier</strong></a></li></ul><ul class="nav-links"><li><a href="#overview" :class="{ active: store.route === 'overview' }" @click="store.setRoute('overview')">Overview</a></li><li><a href="#host" :class="{ active: store.route === 'host' }" @click="store.setRoute('host')">Host</a></li><li><a href="#containers" :class="{ active: store.route === 'containers' || store.route === 'container-detail' }" @click="store.setRoute('containers')">Containers</a></li><li><a href="#logs" :class="{ active: store.route === 'logs' }" @click="store.setRoute('logs')">Logs</a></li><li><a href="#alerts" :class="{ active: store.route === 'alerts' }" @click="store.setRoute('alerts')">Alerts <span v-if="alertsView && alertsView.activeAlerts.length > 0" class="badge badge-critical" style="font-size: 0.7rem; padding: 0.1rem 0.35rem; margin-left: 0.25rem;" v-text="alertsView.activeAlerts.length"></span></a></li><li><a href="#settings" :class="{ active: store.route === 'settings' }" @click="store.setRoute('settings')">Settings</a></li></ul><ul class="nav-controls"><li><select v-model="store.timeRange" @change="store.onTimeRangeChange()" aria-label="Time range"><option value="1h">1h</option><option value="6h">6h</option><option value="24h">24h</option><option value="7d">7d</option><option value="30d">30d</option></select></li><li><select v-model="store.refreshInterval" @change="store.onRefreshIntervalChange()" aria-label="Auto-refresh interval"><option value="0">Off</option><option value="5s">5s</option><option value="10s">10s</option><option value="30s">30s</option></select></li><li><button class="outline secondary" @click="store.cycleTheme()" title="Toggle light/dark/auto theme">
-Theme: <span v-text="store.theme"></span></button></li><li><small><strong v-text="store.user"></strong></small></li><li><button class="outline" @click="store.logout()" title="Logout">Logout</button></li></ul></nav><main class="container-fluid" style="padding-top: 0;"><section v-if="store.route === 'overview'" @vue:mounted="store.onOverviewMounted()" @vue:unmounted="store.onOverviewUnmounted()"><h2>System Overview</h2><article v-if="store.systemHealth && store.systemHealth.cleanup_warning && store.systemHealth.cleanup_warning.active" class="alert-card-firing" style="margin-bottom: 1.5rem; border-left: 4px solid #f59e0b; background-color: rgba(245, 158, 11, 0.08);"><header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;"><strong style="color: #d97706;">⚠️ Cleanup Report Delivery Failed</strong><a href="#settings" @click="store.setRoute('settings')"><small>View Cleanup History &rarr;</small></a></header><div style="font-size: 0.85rem;" v-text="store.systemHealth.cleanup_warning.message"></div></article><article v-if="alertsView && alertsView.activeAlerts.length > 0" class="alert-card-firing" style="margin-bottom: 1.5rem;"><header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;"><strong style="color: #dc2626;">
-⚠️ {{ alertsView.activeAlerts.length }} Active Firing Alert{{ alertsView.activeAlerts.length > 1 ? 's' : '' }}
-</strong><a href="#alerts" @click="store.setRoute('alerts')"><small>View Alerts &rarr;</small></a></header><div style="display: flex; flex-direction: column; gap: 0.35rem;"><div v-for="a in alertsView.activeAlerts" :key="a.rule_id + '-' + a.target" style="font-size: 0.85rem;"><span class="badge badge-critical" style="font-size: 0.7rem; padding: 0.1rem 0.35rem; margin-right: 0.4rem;">FIRING</span><strong>{{ a.target }}</strong>: <span v-text="a.last_summary || ('Rule #' + a.rule_id)"></span></div></div></article><div class="metric-grid"><article class="metric-card"><div class="metric-title">CPU</div><div class="metric-row-main">Cores: <strong v-text="store.dailySummary && store.dailySummary.host.cpu.cores ? store.dailySummary.host.cpu.cores : 1"></strong> &nbsp;|&nbsp; Usage: <strong>{{ store.dailySummary ? store.dailySummary.host.cpu.avg_pct.toFixed(1) + '%' : '--' }}</strong></div><div class="metric-sub">Average: <strong>{{ store.dailySummary ? store.dailySummary.host.cpu.avg_pct.toFixed(1) + '%' : '--' }}</strong> &nbsp;|&nbsp; Peak: <strong>{{ store.dailySummary ? store.dailySummary.host.cpu.peak_pct.toFixed(1) + '%' : '--' }}</strong></div></article><article class="metric-card"><div class="metric-title">Memory (RAM)</div><div class="metric-row-main">Total: <strong>{{ store.dailySummary && store.dailySummary.host.ram.total_bytes > 0 ? (store.dailySummary.host.ram.total_bytes / 1073741824).toFixed(1) + ' GB' : '--' }}</strong> &nbsp;|&nbsp; Used: <strong>{{ store.dailySummary && store.dailySummary.host.ram.avg_bytes > 0 ? (store.dailySummary.host.ram.avg_bytes / 1073741824).toFixed(1) + ' GB' : '--' }}</strong></div><div class="metric-sub">Average: <strong>{{ store.dailySummary ? (store.dailySummary.host.ram.avg_bytes / 1073741824).toFixed(1) + ' GB' : '--' }}</strong> &nbsp;|&nbsp; Peak: <strong>{{ store.dailySummary ? (store.dailySummary.host.ram.peak_bytes / 1073741824).toFixed(1) + ' GB' : '--' }}</strong></div></article><article class="metric-card"><div class="metric-title">Containers</div><div class="metric-row-main"><strong v-text="containersView.runningContainers.length"></strong> <small style="color: #16a34a; font-weight: normal;">Running</small></div><div class="metric-sub">Total tracked: <strong v-text="containersView.containers.length"></strong></div></article><article class="metric-card"><div class="metric-title">Telemetry Storage</div><div class="metric-value">Active</div><div class="metric-sub">SQLite single-writer engine</div></article></div><article><header><h4 style="margin-bottom: 0;">Real-Time Resource Metrics</h4></header><div id="overview-chart" class="chart-panel" @vue:mounted="overviewChart.mounted($el)" @vue:unmounted="overviewChart.unmounted()"></div></article><article v-if="containersView && containersView.runningContainers.length > 0"><header style="display: flex; justify-content: space-between; align-items: center;"><h4 style="margin-bottom: 0;">Active Containers (Running)</h4><a href="#containers" @click="store.setRoute('containers')"><small>View all &rarr;</small></a></header><div class="container-tiles"><div
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Tarsier lightweight single-server observability">
+    <title>Tarsier</title>
+    <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+    <link rel="alternate icon" href="/static/icon.svg">
+    <link rel="stylesheet" href="/static/vendor/pico.min.css">
+    <link rel="stylesheet" href="/static/vendor/uPlot.min.css">
+    <link rel="stylesheet" href="/static/css/app.css">
+    <script src="/static/vendor/petite-vue.iife.js">
+    </script>
+    <script src="/static/vendor/uPlot.iife.min.js">
+    </script>
+    <script src="/static/js/components.js">
+    </script>
+    <script src="/static/js/charts.js">
+    </script>
+    <script src="/static/js/host.js">
+    </script>
+    <script src="/static/js/containers.js">
+    </script>
+    <script src="/static/js/logs.js">
+    </script>
+    <script src="/static/js/alerts.js">
+    </script>
+    <script src="/static/js/settings.js?v=2">
+    </script>
+  </head>
+  <body v-scope>
+    <aside v-if="store.toast.visible" class="toast-container" aria-live="polite">
+      <div class="toast" :class="'toast-' + store.toast.type">
+        <span v-text="store.toast.message">
+        </span>
+        <button class="toast-close" @click="store.toast.dismiss()" aria-label="Close notification">
+          &times;
+        </button>
+      </div>
+    </aside>
+    <dialog class="login-dialog" :open="!store.authenticated">
+      <article>
+        <header style="display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-bottom: 1rem;">
+          <img src="/static/icon.svg" alt="Tarsier Logo" style="height: 44px; width: auto;">
+          <h3 style="margin-bottom: 0;">
+            Sign In to Tarsier
+          </h3>
+        </header>
+        <form @submit.prevent="store.login()">
+          <label for="login-username">
+            Username
+            <input id="login-username" type="text" v-model="store.loginForm.username" placeholder="admin" required autofocus autocomplete="username">
+          </label>
+          <label for="login-password">
+            Password
+            <input id="login-password" type="password" v-model="store.loginForm.password" placeholder="••••••••" required autocomplete="current-password">
+          </label>
+          <p v-if="store.loginForm.error" class="badge badge-danger" style="display: block; margin-bottom: 1rem; text-align: center;" v-text="store.loginForm.error">
+          </p>
+          <button type="submit" :aria-busy="store.loginForm.loading">
+            Sign In
+          </button>
+        </form>
+      </article>
+    </dialog>
+    <div v-if="store.authenticated">
+      <nav class="app-nav">
+        <ul>
+          <li>
+            <a href="#overview" class="brand-title" @click="store.setRoute('overview')">
+              <img src="/static/icon.svg" alt="Tarsier Logo" class="brand-logo">
+              <strong>
+                Tarsier
+              </strong>
+            </a>
+          </li>
+        </ul>
+        <ul class="nav-links">
+          <li>
+            <a href="#overview" :class="{ active: store.route === 'overview' }" @click="store.setRoute('overview')">
+              Overview
+            </a>
+          </li>
+          <li>
+            <a href="#host" :class="{ active: store.route === 'host' }" @click="store.setRoute('host')">
+              Host
+            </a>
+          </li>
+          <li>
+            <a href="#containers" :class="{ active: store.route === 'containers' || store.route === 'container-detail' }" @click="store.setRoute('containers')">
+              Containers
+            </a>
+          </li>
+          <li>
+            <a href="#logs" :class="{ active: store.route === 'logs' }" @click="store.setRoute('logs')">
+              Logs
+            </a>
+          </li>
+          <li>
+            <a href="#alerts" :class="{ active: store.route === 'alerts' }" @click="store.setRoute('alerts')">
+              Alerts
+              <span v-if="alertsView && alertsView.activeAlerts.length > 0" class="badge badge-critical" style="font-size: 0.7rem; padding: 0.1rem 0.35rem; margin-left: 0.25rem;" v-text="alertsView.activeAlerts.length">
+              </span>
+            </a>
+          </li>
+          <li>
+            <a href="#settings" :class="{ active: store.route === 'settings' }" @click="store.setRoute('settings')">
+              Settings
+            </a>
+          </li>
+        </ul>
+        <ul class="nav-controls">
+          <li>
+            <select v-model="store.timeRange" @change="store.onTimeRangeChange()" aria-label="Dashboard time range" title="Dashboard time range">
+              <option value="1h">1h</option>
+              <option value="6h">6h</option>
+              <option value="24h">24h</option>
+              <option value="7d">7d</option>
+              <option value="30d">30d</option>
+            </select>
+          </li>
+          <li>
+            <select v-model="store.refreshInterval" @change="store.onRefreshIntervalChange()" aria-label="Auto-refresh interval" title="Auto-refresh interval">
+              <option value="0">Off</option>
+              <option value="5s">5s</option>
+              <option value="10s">10s</option>
+              <option value="30s">30s</option>
+            </select>
+          </li>
+          <li>
+            <details class="dropdown user-dropdown" @keydown.esc="store.closeDropdown($event)">
+              <summary role="button" class="outline secondary user-dropdown-summary" :aria-label="'User menu for ' + (store.user || 'user')" :title="store.user">
+                <span class="user-avatar-icon" aria-hidden="true">&#x1F464;</span>
+                <span class="user-name-text" v-text="store.truncatedUser"></span>
+              </summary>
+              <ul dir="rtl" class="user-dropdown-menu" role="menu">
+                <li class="user-dropdown-header">
+                  <small class="user-dropdown-label">Logged In User</small>
+                  <strong class="user-dropdown-username" v-text="store.user"></strong>
+                </li>
+                <li>
+                  <a href="#theme" role="menuitem" @click.prevent="store.cycleTheme(); store.closeDropdown($event)" class="user-dropdown-item" title="Cycle theme between auto, light, and dark">
+                    <span>Theme</span>
+                    <span class="badge badge-theme" v-text="store.theme.toUpperCase()"></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#logout" role="menuitem" @click.prevent="store.logout(); store.closeDropdown($event)" class="user-dropdown-item logout-item" title="Log out of session">
+                    <span>Logout</span>
+                  </a>
+                </li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+      </nav>
+      <main class="container-fluid" style="padding-top: 0;">
+        <section v-if="store.route === 'overview'" @vue:mounted="store.onOverviewMounted()" @vue:unmounted="store.onOverviewUnmounted()">
+          <h2>
+            System Overview
+          </h2>
+          <article v-if="store.systemHealth && store.systemHealth.cleanup_warning && store.systemHealth.cleanup_warning.active" class="alert-card-firing" style="margin-bottom: 1.5rem; border-left: 4px solid #f59e0b; background-color: rgba(245, 158, 11, 0.08);">
+            <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+              <strong style="color: #d97706;">
+                ⚠️ Cleanup Report Delivery Failed
+              </strong>
+              <a href="#settings" @click="store.setRoute('settings')">
+                <small>
+                  View Cleanup History &rarr;
+                </small>
+              </a>
+            </header>
+            <div style="font-size: 0.85rem;" v-text="store.systemHealth.cleanup_warning.message">
+            </div>
+          </article>
+          <article v-if="alertsView && alertsView.activeAlerts.length > 0" class="alert-card-firing" style="margin-bottom: 1.5rem;">
+            <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <strong style="color: #dc2626;">
+                ⚠️ {{ alertsView.activeAlerts.length }} Active Firing Alert{{ alertsView.activeAlerts.length > 1 ? 's' : '' }}
+              </strong>
+              <a href="#alerts" @click="store.setRoute('alerts')">
+                <small>
+                  View Alerts &rarr;
+                </small>
+              </a>
+            </header>
+            <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+              <div v-for="a in alertsView.activeAlerts" :key="a.rule_id + '-' + a.target" style="font-size: 0.85rem;">
+                <span class="badge badge-critical" style="font-size: 0.7rem; padding: 0.1rem 0.35rem; margin-right: 0.4rem;">
+                  FIRING
+                </span>
+                <strong>
+                  {{ a.target }}
+                </strong>
+                :
+                <span v-text="a.last_summary || ('Rule #' + a.rule_id)">
+                </span>
+              </div>
+            </div>
+          </article>
+          <div class="metric-grid">
+            <article class="metric-card">
+              <div class="metric-title">
+                CPU
+              </div>
+              <div class="metric-row-main">
+                Cores:
+                <strong v-text="store.dailySummary && store.dailySummary.host.cpu.cores ? store.dailySummary.host.cpu.cores : 1">
+                </strong>
+                &nbsp;|&nbsp; Usage:
+                <strong>
+                  {{ store.dailySummary ? store.dailySummary.host.cpu.avg_pct.toFixed(1) + '%' : '--' }}
+                </strong>
+              </div>
+              <div class="metric-sub">
+                Average:
+                <strong>
+                  {{ store.dailySummary ? store.dailySummary.host.cpu.avg_pct.toFixed(1) + '%' : '--' }}
+                </strong>
+                &nbsp;|&nbsp; Peak:
+                <strong>
+                  {{ store.dailySummary ? store.dailySummary.host.cpu.peak_pct.toFixed(1) + '%' : '--' }}
+                </strong>
+              </div>
+            </article>
+            <article class="metric-card">
+              <div class="metric-title">
+                Memory (RAM)
+              </div>
+              <div class="metric-row-main">
+                Total:
+                <strong>
+                  {{ store.dailySummary && store.dailySummary.host.ram.total_bytes > 0 ? (store.dailySummary.host.ram.total_bytes / 1073741824).toFixed(1) + ' GB' : '--' }}
+                </strong>
+                &nbsp;|&nbsp; Used:
+                <strong>
+                  {{ store.dailySummary && store.dailySummary.host.ram.avg_bytes > 0 ? (store.dailySummary.host.ram.avg_bytes / 1073741824).toFixed(1) + ' GB' : '--' }}
+                </strong>
+              </div>
+              <div class="metric-sub">
+                Average:
+                <strong>
+                  {{ store.dailySummary ? (store.dailySummary.host.ram.avg_bytes / 1073741824).toFixed(1) + ' GB' : '--' }}
+                </strong>
+                &nbsp;|&nbsp; Peak:
+                <strong>
+                  {{ store.dailySummary ? (store.dailySummary.host.ram.peak_bytes / 1073741824).toFixed(1) + ' GB' : '--' }}
+                </strong>
+              </div>
+            </article>
+            <article class="metric-card">
+              <div class="metric-title">
+                Containers
+              </div>
+              <div class="metric-row-main">
+                <strong v-text="containersView.runningContainers.length">
+                </strong>
+                <small style="color: #16a34a; font-weight: normal;">
+                  Running
+                </small>
+              </div>
+              <div class="metric-sub">
+                Total tracked:
+                <strong v-text="containersView.containers.length">
+                </strong>
+              </div>
+            </article>
+            <article class="metric-card">
+              <div class="metric-title">
+                Telemetry Storage
+              </div>
+              <div class="metric-value">
+                Active
+              </div>
+              <div class="metric-sub">
+                SQLite single-writer engine
+              </div>
+            </article>
+          </div>
+          <article>
+            <header>
+              <h4 style="margin-bottom: 0;">
+                Real-Time Resource Metrics
+              </h4>
+            </header>
+            <div id="overview-chart" class="chart-panel" @vue:mounted="overviewChart.mounted($el)" @vue:unmounted="overviewChart.unmounted()">
+            </div>
+          </article>
+          <article v-if="containersView && containersView.runningContainers.length > 0">
+            <header style="display: flex; justify-content: space-between; align-items: center;">
+              <h4 style="margin-bottom: 0;">
+                Active Containers (Running)
+              </h4>
+              <a href="#containers" @click="store.setRoute('containers')">
+                <small>
+                  View all &rarr;
+                </small>
+              </a>
+            </header>
+            <div class="container-tiles">
+              <div
 v-for="c in containersView.runningContainers"
 :key="c.id"
 class="container-tile"
 @click="containersView.openDetail(c.name);"
 :title="c.name + ' (' + c.state + ')'"
-><div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.25rem;"><span class="tile-name"><span :class="'hollow-circle ' + containersView.getHealthCircleClass(c)"></span><span v-text="c.name"></span></span><span :class="'status-pill status-' + c.health" style="padding: 0.1rem 0.35rem; font-size: 0.65rem;"><span class="status-dot"></span></span></div><span class="tile-sub" v-text="(c.metrics && c.metrics.cpu_pct != null ? c.metrics.cpu_pct.toFixed(1) + '% CPU' : '--')"></span></div></div></article></section><section v-if="store.route === 'host'" @vue:mounted="hostView.mounted()" @vue:unmounted="hostView.unmounted()"><h2>Host Metrics</h2><div class="metric-grid"><article class="metric-card"><div class="metric-title">CPU</div><div class="metric-row-main">Cores: <strong v-text="hostView.summary.cpu.cores || 1"></strong> &nbsp;|&nbsp; Usage: <strong v-text="hostView.current.cpuPct"></strong></div><div class="metric-sub">Average: <strong v-text="hostView.summary.cpu.avg_pct.toFixed(1) + '%'"></strong> &nbsp;|&nbsp; Peak: <strong v-text="hostView.summary.cpu.peak_pct.toFixed(1) + '%'"></strong></div></article><article class="metric-card"><div class="metric-title">Memory (RAM)</div><div class="metric-row-main">Total: <strong v-text="hostView.formatBytes(hostView.summary.ram.total_bytes)"></strong> &nbsp;|&nbsp; Used: <strong v-text="hostView.current.memUsed"></strong></div><div class="metric-sub">Average: <strong v-text="hostView.formatBytes(hostView.summary.ram.avg_bytes)"></strong> &nbsp;|&nbsp; Peak: <strong v-text="hostView.formatBytes(hostView.summary.ram.peak_bytes)"></strong></div></article><article class="metric-card"><div class="metric-title">Filesystem Storage</div><div class="metric-row-main">Total: <strong v-text="hostView.current.diskTotal"></strong></div><div class="metric-sub">Used: <strong v-text="hostView.current.diskUsed"></strong> &nbsp;|&nbsp; <strong v-text="hostView.current.diskUsedPct"></strong></div></article></div><div class="charts-grid"><article class="chart-card"><header><h4>CPU Utilization (%)</h4></header><div id="chart-cpu" class="chart-panel"></div></article><article class="chart-card"><header><h4>System Load Average</h4></header><div id="chart-load" class="chart-panel"></div></article><article class="chart-card"><header><h4>Memory & Swap</h4></header><div id="chart-mem" class="chart-panel"></div></article><article class="chart-card"><header><h4>Network Throughput</h4></header><div id="chart-net" class="chart-panel"></div></article><article class="chart-card"><header><h4>Disk I/O Throughput</h4></header><div id="chart-disk-io" class="chart-panel"></div></article><article class="chart-card"><header><h4>Disk Usage (%)</h4></header><div id="chart-disk-space" class="chart-panel"></div></article></div><article><header><h4>Daily Average vs. Peak History (Last 14 Days)</h4></header><table class="striped"><thead><tr><th>Date</th><th>CPU Avg %</th><th>CPU Peak %</th><th>RAM Avg</th><th>RAM Peak</th></tr></thead><tbody><tr v-if="hostView.history.length === 0"><td colspan="5" style="text-align: center; color: var(--pico-muted-color);">No historical rollups available yet.</td></tr><tr v-for="d in hostView.history" :key="d.date"><td><code v-text="d.date"></code></td><td v-text="d.cpu.avg_pct.toFixed(1) + '%'"></td><td><strong v-text="d.cpu.peak_pct.toFixed(1) + '%'"></strong></td><td v-text="hostView.formatBytes(d.ram.avg_bytes)"></td><td><strong v-text="hostView.formatBytes(d.ram.peak_bytes)"></strong></td></tr></tbody></table></article></section><section v-if="store.route === 'containers'" @vue:mounted="containersView.mounted()" @vue:unmounted="containersView.unmounted()"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;"><h2 style="margin-bottom: 0;">Containers</h2><div style="display: flex; gap: 0.5rem; align-items: center;"><input
+>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.25rem;">
+                  <span class="tile-name">
+                    <span :class="'hollow-circle ' + containersView.getHealthCircleClass(c)">
+                    </span>
+                    <span v-text="c.name">
+                    </span>
+                  </span>
+                  <span :class="'status-pill status-' + c.health" style="padding: 0.1rem 0.35rem; font-size: 0.65rem;">
+                    <span class="status-dot">
+                    </span>
+                  </span>
+                </div>
+                <span class="tile-sub" v-text="(c.metrics && c.metrics.cpu_pct != null ? c.metrics.cpu_pct.toFixed(1) + '% CPU' : '--')">
+                </span>
+              </div>
+            </div>
+          </article>
+        </section>
+        <section v-if="store.route === 'host'" @vue:mounted="hostView.mounted()" @vue:unmounted="hostView.unmounted()">
+          <h2>
+            Host Metrics
+          </h2>
+          <div class="metric-grid">
+            <article class="metric-card">
+              <div class="metric-title">
+                CPU
+              </div>
+              <div class="metric-row-main">
+                Cores:
+                <strong v-text="hostView.summary.cpu.cores || 1">
+                </strong>
+                &nbsp;|&nbsp; Usage:
+                <strong v-text="hostView.current.cpuPct">
+                </strong>
+              </div>
+              <div class="metric-sub">
+                Average:
+                <strong v-text="hostView.summary.cpu.avg_pct.toFixed(1) + '%'">
+                </strong>
+                &nbsp;|&nbsp; Peak:
+                <strong v-text="hostView.summary.cpu.peak_pct.toFixed(1) + '%'">
+                </strong>
+              </div>
+            </article>
+            <article class="metric-card">
+              <div class="metric-title">
+                Memory (RAM)
+              </div>
+              <div class="metric-row-main">
+                Total:
+                <strong v-text="hostView.formatBytes(hostView.summary.ram.total_bytes)">
+                </strong>
+                &nbsp;|&nbsp; Used:
+                <strong v-text="hostView.current.memUsed">
+                </strong>
+              </div>
+              <div class="metric-sub">
+                Average:
+                <strong v-text="hostView.formatBytes(hostView.summary.ram.avg_bytes)">
+                </strong>
+                &nbsp;|&nbsp; Peak:
+                <strong v-text="hostView.formatBytes(hostView.summary.ram.peak_bytes)">
+                </strong>
+              </div>
+            </article>
+            <article class="metric-card">
+              <div class="metric-title">
+                Filesystem Storage
+              </div>
+              <div class="metric-row-main">
+                Total:
+                <strong v-text="hostView.current.diskTotal">
+                </strong>
+              </div>
+              <div class="metric-sub">
+                Used:
+                <strong v-text="hostView.current.diskUsed">
+                </strong>
+                &nbsp;|&nbsp;
+                <strong v-text="hostView.current.diskUsedPct">
+                </strong>
+              </div>
+            </article>
+          </div>
+          <div class="charts-grid">
+            <article class="chart-card">
+              <header>
+                <h4>
+                  CPU Utilization (%)
+                </h4>
+              </header>
+              <div id="chart-cpu" class="chart-panel">
+              </div>
+            </article>
+            <article class="chart-card">
+              <header>
+                <h4>
+                  System Load Average
+                </h4>
+              </header>
+              <div id="chart-load" class="chart-panel">
+              </div>
+            </article>
+            <article class="chart-card">
+              <header>
+                <h4>
+                  Memory & Swap
+                </h4>
+              </header>
+              <div id="chart-mem" class="chart-panel">
+              </div>
+            </article>
+            <article class="chart-card">
+              <header>
+                <h4>
+                  Network Throughput
+                </h4>
+              </header>
+              <div id="chart-net" class="chart-panel">
+              </div>
+            </article>
+            <article class="chart-card">
+              <header>
+                <h4>
+                  Disk I/O Throughput
+                </h4>
+              </header>
+              <div id="chart-disk-io" class="chart-panel">
+              </div>
+            </article>
+            <article class="chart-card">
+              <header>
+                <h4>
+                  Disk Usage (%)
+                </h4>
+              </header>
+              <div id="chart-disk-space" class="chart-panel">
+              </div>
+            </article>
+          </div>
+          <article>
+            <header>
+              <h4>
+                Daily Average vs. Peak History (Last 14 Days)
+              </h4>
+            </header>
+            <table class="striped">
+              <thead>
+                <tr>
+                  <th>
+                    Date
+                  </th>
+                  <th>
+                    CPU Avg %
+                  </th>
+                  <th>
+                    CPU Peak %
+                  </th>
+                  <th>
+                    RAM Avg
+                  </th>
+                  <th>
+                    RAM Peak
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="hostView.history.length === 0">
+                  <td colspan="5" style="text-align: center; color: var(--pico-muted-color);">
+                    No historical rollups available yet.
+                  </td>
+                </tr>
+                <tr v-for="d in hostView.history" :key="d.date">
+                  <td>
+                    <code v-text="d.date">
+                    </code>
+                  </td>
+                  <td v-text="d.cpu.avg_pct.toFixed(1) + '%'">
+                  </td>
+                  <td>
+                    <strong v-text="d.cpu.peak_pct.toFixed(1) + '%'">
+                    </strong>
+                  </td>
+                  <td v-text="hostView.formatBytes(d.ram.avg_bytes)">
+                  </td>
+                  <td>
+                    <strong v-text="hostView.formatBytes(d.ram.peak_bytes)">
+                    </strong>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+        </section>
+        <section v-if="store.route === 'containers'" @vue:mounted="containersView.mounted()" @vue:unmounted="containersView.unmounted()">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h2 style="margin-bottom: 0;">
+              Containers
+            </h2>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <input
 type="search"
 v-model="containersView.search"
 placeholder="Search containers..."
 style="margin-bottom: 0; min-width: 220px;"
-><button class="outline" @click="containersView.refresh()" title="Refresh container list">Refresh</button></div></div><div class="alert-tabs" style="margin-bottom: 1rem;"><button class="alert-tab-btn" :class="{ active: containersView.activeTab === 'running' }" @click="containersView.activeTab = 'running'">Running (<span v-text="containersView.runningContainers.length"></span>)</button><button class="alert-tab-btn" :class="{ active: containersView.activeTab === 'exited' }" @click="containersView.activeTab = 'exited'">Exited (<span v-text="containersView.exitedContainers.length"></span>)</button></div><article v-if="!containersView.dockerConnected" style="background-color: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.3); margin-bottom: 1.5rem; padding: 0.75rem 1rem;"><p style="margin-bottom: 0; color: #ca8a04;"><strong>Docker daemon disconnected</strong> — showing last known container state from local cache.</p></article><article><table class="striped"><thead><tr><th class="sortable" @click="containersView.setSort('name')">Container Name <span v-if="containersView.sortCol === 'name'">{{ containersView.sortAsc ? '▲' : '▼' }}</span></th><th class="sortable" @click="containersView.setSort('cpu')">Stats (CPU &amp; RAM) <span v-if="containersView.sortCol === 'cpu'">{{ containersView.sortAsc ? '▲' : '▼' }}</span></th><th>NET I/O</th><th style="text-align: right;">Actions</th></tr></thead><tbody><tr v-if="containersView.filteredContainers.length === 0"><td colspan="4" style="text-align: center; color: var(--pico-muted-color);">No {{ containersView.activeTab }} containers found.</td></tr><tr v-for="c in containersView.filteredContainers" :key="c.id"><td><div><span :class="'hollow-circle ' + containersView.getHealthCircleClass(c)" :title="c.health || c.state"></span><strong v-text="c.name"></strong></div><small style="color: var(--pico-muted-color); font-size: 0.75rem;" v-text="c.image"></small></td><td><div><small style="color: var(--pico-muted-color);">CPU: </small><strong>{{ (c.metrics && c.metrics.cpu_pct != null ? c.metrics.cpu_pct.toFixed(1) : '0.0') }}% / 100%</strong></div><div><small style="color: var(--pico-muted-color);">RAM: </small><strong>{{ containersView.formatBytes(c.metrics ? c.metrics.mem_used : 0) }} / {{ containersView.formatBytes(c.metrics ? c.metrics.mem_limit : 0) }}</strong></div><div style="margin-top: 0.2rem;"><span class="badge badge-warning" style="font-size: 0.7rem; padding: 0.1rem 0.35rem;">Restarts: {{ c.restart_count }}</span></div></td><td><div><small style="color: var(--pico-muted-color);">IN: </small><span v-text="containersView.formatBps(c.metrics ? c.metrics.net_rx_bps : 0)"></span></div><div><small style="color: var(--pico-muted-color);">OUT: </small><span v-text="containersView.formatBps(c.metrics ? c.metrics.net_tx_bps : 0)"></span></div></td><td style="text-align: right;"><a :href="'#container-detail?container=' + encodeURIComponent(c.name)" role="button" class="outline secondary" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; margin-right: 0.3rem;" @click.prevent="containersView.openDetail(c.name)">Details</a><a :href="'#logs?container=' + encodeURIComponent(c.name)" role="button" class="outline" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" @click="containersView.viewLogs(c.name)">Logs</a></td></tr></tbody></table></article></section><section v-if="store.route === 'container-detail'" @vue:mounted="containersView.detailMounted()" @vue:unmounted="containersView.detailUnmounted()"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;"><h2 style="margin-bottom: 0;">Container Details</h2><a href="#containers" class="detail-back-link" @click.prevent="containersView.closeDetail()">&larr; Back to Containers</a></div><article v-if="containersView.detailData"><header style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;"><div><h3 style="margin-bottom: 0.25rem; display: flex; align-items: center;"><span :class="'hollow-circle ' + containersView.getHealthCircleClass(containersView.detailData.container)"></span><span v-text="containersView.detailData.container.name"></span><span :class="'status-pill status-' + containersView.detailData.container.health" style="margin-left: 0.5rem; font-size: 0.75rem;"><span class="status-dot"></span><span v-text="containersView.detailData.container.state"></span></span></h3><small style="color: var(--pico-muted-color);" v-text="containersView.detailData.container.image"></small></div><div><button class="outline" style="padding: 0.35rem 0.8rem; font-size: 0.85rem;" @click="containersView.viewLogs(containersView.detailData.container.name)">View Logs &rarr;</button></div></header><div class="metric-grid" style="margin-bottom: 1rem;"><article class="metric-card"><div class="metric-title">Uptime</div><div class="metric-row-main" v-text="containersView.formatUptime(containersView.detailData.container.uptime_s)"></div></article><article class="metric-card"><div class="metric-title">Restarts</div><div class="metric-row-main"><span :class="containersView.detailData.container.restart_count > 0 ? 'badge badge-warning' : 'badge badge-muted'" v-text="containersView.detailData.container.restart_count"></span></div></article><article class="metric-card"><div class="metric-title">First Seen</div><div class="metric-row-main" style="font-size: 0.85rem;" v-text="containersView.detailData.container.first_seen"></div></article><article class="metric-card"><div class="metric-title">Last Seen</div><div class="metric-row-main" style="font-size: 0.85rem;" v-text="containersView.detailData.container.last_seen"></div></article></div><div class="charts-grid" style="margin-bottom: 1.5rem;"><article class="chart-card"><header><h4>CPU Utilization (%)</h4></header><div id="detail-chart-cpu" class="chart-panel" style="height: 180px;"></div></article><article class="chart-card"><header><h4>Memory Usage</h4></header><div id="detail-chart-mem" class="chart-panel" style="height: 180px;"></div></article></div><article class="chart-card" style="margin-bottom: 1.5rem;"><header><h4>Network Throughput (RX / TX)</h4></header><div id="detail-chart-net" class="chart-panel" style="height: 180px;"></div></article><article style="margin-bottom: 1.5rem;"><header><h4>Daily Average vs. Peak History</h4></header><table class="striped"><thead><tr><th>Date</th><th>CPU Avg %</th><th>CPU Peak %</th><th>RAM Avg</th><th>RAM Peak</th></tr></thead><tbody><tr v-if="containersView.detailData.daily_history.length === 0"><td colspan="5" style="text-align: center; color: var(--pico-muted-color);">No daily rollups recorded yet.</td></tr><tr v-for="dh in containersView.detailData.daily_history" :key="dh.date"><td><code v-text="dh.date"></code></td><td v-text="dh.cpu.avg_pct.toFixed(1) + '%'"></td><td><strong v-text="dh.cpu.peak_pct.toFixed(1) + '%'"></strong></td><td v-text="containersView.formatBytes(dh.ram.avg_bytes)"></td><td><strong v-text="containersView.formatBytes(dh.ram.peak_bytes)"></strong></td></tr></tbody></table></article><article><header><h4>Recent Lifecycle Events</h4></header><table class="striped"><thead><tr><th>Timestamp</th><th>Action</th><th>Details</th></tr></thead><tbody><tr v-if="containersView.detailData.recent_events.length === 0"><td colspan="3" style="text-align: center; color: var(--pico-muted-color);">No lifecycle events recorded.</td></tr><tr v-for="ev in containersView.detailData.recent_events" :key="ev.id"><td><small v-text="ev.ts"></small></td><td><span :class="'badge ' + (ev.type === 'start' ? 'badge-success' : (ev.type === 'restart' ? 'badge-warning' : 'badge-danger'))" v-text="ev.type"></span></td><td><code v-text="ev.detail || '--'"></code></td></tr></tbody></table></article></article><article v-else-if="containersView.detailLoading" aria-busy="true" style="padding: 2rem; text-align: center;"><p>Loading container details...</p></article><article v-else><p>Container not found or no data available.</p></article></section><section v-if="store.route === 'logs'" :class="{ 'log-fullscreen': logsView.isFullscreen }" @vue:mounted="logsView.mounted()" @vue:unmounted="logsView.unmounted()"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;"><div style="display: flex; align-items: center; gap: 0.75rem;"><h2 style="margin-bottom: 0; display: inline-flex; align-items: center; gap: 0.5rem;">Log Explorer</h2><span class="live-pill" :class="{ 'paused': !logsView.polling, 'syncing': logsView.pollInflight }" :title="logsView.polling ? (logsView.pollInflight ? 'Fetching latest logs...' : 'Streaming live updates every 3s') : 'Live stream paused'"><span class="live-dot"></span><span v-if="logsView.pollInflight">Syncing...</span><span v-else-if="logsView.polling">LIVE</span><span v-else>PAUSED</span></span><span v-if="logsView.newLogsCount > 0" class="badge-new-logs" v-text="'+' + logsView.newLogsCount + ' new'"></span></div><div style="display: flex; gap: 0.5rem; align-items: center;"><button class="outline" :class="{ 'secondary': !logsView.polling }" @click="logsView.togglePolling()" style="margin-bottom: 0; padding: 0.3rem 0.65rem; font-size: 0.8rem;"><span v-if="logsView.polling">&#10074;&#10074; Pause</span><span v-else>&#9654; Resume</span></button><button class="outline secondary" @click="logsView.refreshAll()" :aria-busy="logsView.loading" title="Reload sources and active logs" style="margin-bottom: 0; padding: 0.3rem 0.65rem; font-size: 0.8rem;">Refresh</button><button class="outline" :class="{ 'secondary': !logsView.isFullscreen }" @click="logsView.toggleFullscreen()" :title="logsView.isFullscreen ? 'Exit Fullscreen (Esc)' : 'Expand to Fullscreen'" style="margin-bottom: 0; padding: 0.3rem 0.65rem; font-size: 0.8rem;"><span v-if="logsView.isFullscreen">&#x2715; Exit Fullscreen</span><span v-else>&#x26F6; Fullscreen</span></button></div></div><div class="log-query-card"><div class="log-search-row"><div class="log-search-input-wrap"><span class="log-search-icon">&#x2315;</span><input type="text" class="log-search-input" v-model="logsView.query" @input="logsView.onFilterChange()" @keydown.enter.prevent="logsView.onFilterChange()" placeholder="Filter log messages by keyword, substring, or regex (e.g. error, timeout, status=500)..." aria-label="Search logs"><button v-if="logsView.query" type="button" class="log-clear-btn" @click="logsView.clearQuery()" title="Clear search query">&#x2715;</button></div><button type="button" :class="logsView.regex ? '' : 'outline secondary'" @click="logsView.toggleRegex()" title="Toggle Regular Expression mode" style="padding: 0.3rem 0.65rem; font-size: 0.8rem; white-space: nowrap; margin-bottom: 0;">.* Regex</button></div><div class="log-filters-row"><div class="log-filter-item log-source-filter-item" style="flex: 2; min-width: 240px; position: relative;" id="log-source-select-wrap"><span class="log-filter-label">Source:</span><div class="custom-select-wrap" style="flex: 1;"><button type="button" class="custom-select-trigger" @click="logsView.toggleSourceDropdown()" :aria-expanded="logsView.sourceDropdownOpen" title="Select or search log source"><div class="custom-select-selected-content" v-if="logsView.currentSource"><span v-if="logsView.isContainer(logsView.currentSource)" class="source-status-dot" :class="logsView.isContainerLive(logsView.currentSource) ? 'status-live' : 'status-dead'" :title="logsView.isContainerLive(logsView.currentSource) ? 'Container: Live / Running' : 'Container: Stopped / Exited'"></span><span v-else class="source-status-dot status-file" title="File Source"></span><span class="source-item-name" v-text="logsView.currentSource.name"></span><span class="source-item-type" :class="'type-' + (logsView.currentSource.kind || 'log')" v-text="logsView.getSourceTypeLabel(logsView.currentSource)"></span></div><span class="custom-select-placeholder" v-else>-- Select Log Source --</span><span class="custom-select-arrow" v-text="logsView.sourceDropdownOpen ? '▴' : '▾'"></span></button><div class="custom-select-menu" v-if="logsView.sourceDropdownOpen" @click.stop><div class="custom-select-search-wrap"><span class="custom-select-search-icon">&#x2315;</span><input type="text" id="log-source-search-input" class="custom-select-search-input" v-model="logsView.sourceSearchQuery" placeholder="Search containers or logs..." autocomplete="off" @keydown.esc="logsView.closeSourceDropdown()" @keydown.down.prevent="logsView.navigateSource(1)" @keydown.up.prevent="logsView.navigateSource(-1)" @keydown.enter.prevent="logsView.selectHighlightedSource()"><button v-if="logsView.sourceSearchQuery" type="button" class="custom-select-clear-btn" @click="logsView.sourceSearchQuery = ''" title="Clear search">&times;</button></div><div class="custom-select-options"><div v-if="logsView.filteredSources.length === 0" class="custom-select-empty">No matching sources found</div><div v-for="(s, idx) in logsView.filteredSources" :key="s.id" class="custom-select-option" :class="{ 'selected': String(s.id) === logsView.selectedSource, 'highlighted': idx === logsView.highlightedSourceIndex }" @click="logsView.selectSource(s)" @mouseenter="logsView.highlightedSourceIndex = idx"><span v-if="logsView.isContainer(s)" class="source-status-dot" :class="logsView.isContainerLive(s) ? 'status-live' : 'status-dead'" :title="logsView.isContainerLive(s) ? 'Live (running)' : 'Dead (stopped/exited)'"></span><span v-else class="source-status-dot status-file" title="File Source"></span><span class="source-item-name" :title="s.name" v-text="s.name"></span><span class="source-item-type" :class="'type-' + (s.kind || 'log')" v-text="logsView.getSourceTypeLabel(s)"></span><span v-if="String(s.id) === logsView.selectedSource" class="source-selected-check">&#x2713;</span></div></div></div></div></div><div class="log-filter-item" style="min-width: 130px;"><span class="log-filter-label">Time:</span><select v-model="logsView.timeRange" @change="logsView.onTimeRangeChange()" aria-label="Time Range Filter" style="flex: 1;"><option value="">All Time</option><option value="15m">Last 15m</option><option value="30m">Last 30m</option><option value="1h">Last 1h</option><option value="6h">Last 6h</option><option value="12h">Last 12h</option><option value="24h">Last 24h</option><option value="7d">Last 7d</option><option value="custom">Custom...</option></select></div><div class="log-filter-item log-custom-time-item" v-if="logsView.timeRange === 'custom'"><span class="log-filter-label">From:</span><input type="datetime-local" class="log-datetime-input" v-model="logsView.timeFrom" @change="logsView.onFilterChange()" title="Filter logs from this start time"></div><div class="log-filter-item log-custom-time-item" v-if="logsView.timeRange === 'custom'"><span class="log-filter-label">To:</span><input type="datetime-local" class="log-datetime-input" v-model="logsView.timeTo" @change="logsView.onFilterChange()" title="Filter logs up to this end time"></div><div class="log-filter-item" style="flex: 1; min-width: 120px;"><span class="log-filter-label">Level:</span><select v-model="logsView.level" @change="logsView.onFilterChange()" aria-label="Min Level Filter" style="flex: 1;"><option value="">All Levels</option><option value="DEBUG">Debug+</option><option value="INFO">Info+</option><option value="WARN">Warn+</option><option value="ERROR">Error+</option><option value="FATAL">Fatal</option></select></div><div class="log-filter-item" style="flex: 1; min-width: 110px;"><span class="log-filter-label">Stream:</span><select v-model="logsView.stream" @change="logsView.onFilterChange()" aria-label="Stream Filter" style="flex: 1;"><option value="">All Streams</option><option value="stdout">stdout</option><option value="stderr">stderr</option></select></div><div class="log-filter-item" style="width: auto;"><span class="log-filter-label">Limit:</span><select v-model.number="logsView.limit" @change="logsView.onFilterChange()" aria-label="Page Limit"><option :value="50">50</option><option :value="100">100</option><option :value="250">250</option><option :value="500">500</option></select></div><button type="button" class="outline secondary" @click="logsView.resetFilters()" title="Reset all query filters to defaults" style="padding: 0.2rem 0.55rem; font-size: 0.75rem; margin-bottom: 0; white-space: nowrap;">Reset</button></div></div><div class="log-info-bar"><div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;"><span>Showing: <strong v-text="logsView.entries.length"></strong> entries</span><span v-if="logsView.timeRange">&bull; Range: <strong v-text="logsView.timeRangeLabel"></strong></span><span v-if="logsView.scannedBlocks > 0">&bull; Scanned Blocks: <strong v-text="logsView.scannedBlocks"></strong></span><span>&bull; Engine: <strong v-text="logsView.fromCache ? 'Hot Tail Ring' : 'Compressed Disk Chunks'"></strong></span></div><div style="display: flex; gap: 0.75rem; align-items: center;"><a href="#" role="button" class="outline secondary btn-micro" @click.prevent="logsView.toggleWrap()" :title="logsView.wrapLines ? 'Click to disable line wrapping (single line with horizontal scroll)' : 'Click to wrap long log messages'"><span v-if="logsView.wrapLines">&#8644; Wrap: ON</span><span v-else>&#8644; Wrap: OFF (Scroll)</span></a><span v-if="logsView.polling" style="color: var(--pico-primary);">&#8226; Polling every 3s</span><span v-else style="color: var(--pico-muted-color);">&#8226; Stream paused</span></div></div><p v-if="logsView.error" class="badge badge-danger" style="display: block; margin-bottom: 0.75rem;" v-text="logsView.error"></p><div class="log-viewer log-viewer-responsive" :class="{ 'log-no-wrap': !logsView.wrapLines }"><table class="log-table"><thead><tr><th style="width: 185px;" title="Logs ordered latest first">Timestamp &darr;</th><th style="width: 75px;">Level</th><th style="width: 75px;">Stream</th><th>Message</th><th style="width: 120px; text-align: right;">Actions</th></tr></thead><tbody><tr v-if="logsView.loading && logsView.entries.length === 0"><td colspan="5" style="text-align: center; padding: 2rem;" aria-busy="true">Scanning compressed log blocks...</td></tr><tr v-else-if="logsView.entries.length === 0"><td colspan="5" style="text-align: center; padding: 2rem; color: var(--pico-muted-color);">No log entries match the selected filters.</td></tr><tr v-for="entry in logsView.entries" :key="entry.id" class="log-row"><td><small :title="entry.ts_src === 0 || entry.ts_src === 2 ? 'Inferred timestamp (~): no explicit timestamp detected in line payload' : 'Explicit timestamp'"><span v-if="entry.ts_src === 0 || entry.ts_src === 2" style="color: var(--pico-muted-color); font-weight: bold;">~</span><span v-text="logsView.formatTime(entry.ts)"></span></small></td><td><span :class="'badge ' + logsView.levelBadgeClass(entry.level) + (entry.level_src >= 3 ? ' badge-inferred' : '')" :title="entry.level_src >= 3 ? 'Inferred level: detected via keyword/status heuristic fallback' : 'Explicit level'" v-text="entry.level.toUpperCase()"></span></td><td><small class="log-stream" v-text="entry.stream || '--'"></small></td><td class="log-msg" @click="logsView.toggleExpand(entry.id)"><div :class="{ 'log-msg-collapsed': logsView.expandedID !== entry.id }"><span v-for="(seg, sIdx) in logsView.highlightSegments(entry.line)" :key="sIdx" :class="{ 'log-match': seg.match }" v-text="seg.text"></span></div></td><td style="text-align: right; white-space: nowrap;"><button class="outline secondary btn-micro" @click="logsView.openContext(entry)" title="Inspect surrounding ±20 lines">Context</button><button class="outline secondary btn-micro" @click="logsView.copyLine(entry.line)" title="Copy line to clipboard">Copy</button></td></tr></tbody></table></div><div style="display: flex; justify-content: center; margin-top: 0.75rem;" v-if="logsView.hasMore"><button class="outline" :aria-busy="logsView.loading" @click="logsView.loadOlder()" style="min-width: 200px; padding: 0.35rem 1rem; font-size: 0.85rem;">Load older logs</button></div><dialog class="modal-wide" :open="logsView.contextModalOpen"><article><header><div style="display: flex; justify-content: space-between; align-items: center;"><h4 style="margin-bottom: 0;">Log Line Surrounding Context (&plusmn;20 lines)</h4><button class="toast-close" @click="logsView.closeContext()" aria-label="Close context dialog">&times;</button></div></header><div v-if="logsView.contextLoading" style="text-align: center; padding: 2rem;" aria-busy="true">
-Reading surrounding log records from chunk...
-</div><div v-else class="log-viewer" style="max-height: 60vh; overflow-y: auto;"><table class="log-table"><thead><tr><th style="width: 185px;">Timestamp</th><th style="width: 75px;">Level</th><th style="width: 75px;">Stream</th><th>Message</th></tr></thead><tbody><tr v-for="(ctxEntry, cIdx) in logsView.contextEntries" :key="ctxEntry.id"
-:class="{ 'log-context-target': cIdx === logsView.contextTargetIndex, 'log-row': true }"><td><small><span v-if="ctxEntry.ts_src === 0 || ctxEntry.ts_src === 2" style="color: var(--pico-muted-color); font-weight: bold;">~</span><span v-text="logsView.formatTime(ctxEntry.ts)"></span></small></td><td><span :class="'badge ' + logsView.levelBadgeClass(ctxEntry.level) + (ctxEntry.level_src >= 3 ? ' badge-inferred' : '')"
-v-text="ctxEntry.level.toUpperCase()"></span></td><td><small class="log-stream" v-text="ctxEntry.stream || '--'"></small></td><td class="log-msg"><span v-text="ctxEntry.line"></span></td></tr></tbody></table></div><footer><div style="display: flex; justify-content: flex-end;"><button class="secondary" @click="logsView.closeContext()">Close</button></div></footer></article></dialog></section><section v-if="store.route === 'alerts'" @vue:mounted="alertsView.mounted()" @vue:unmounted="alertsView.unmounted()"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;"><h2 style="margin:0;">Alerts & Notifiers</h2><div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;"><button @click="alertsView.openCreateModal()" style="margin:0;">+ New Rule</button><select style="margin:0;width:auto;font-size:0.85rem;" @change="if($event.target.value){alertsView.applyTemplate(alertsView.templates.find(t=>t.id===$event.target.value));$event.target.value='';}"><option value="">Templates...</option><option v-for="t in alertsView.templates" :key="t.id" :value="t.id" v-text="t.name"></option></select><button class="outline secondary" @click="alertsView.exportRules()" style="margin:0;font-size:0.85rem;">Export</button><label role="button" class="outline secondary" style="margin:0;font-size:0.85rem;cursor:pointer;">Import<input type="file" accept=".json" @change="alertsView.importFile($event)" style="display:none;"/></label><button class="outline secondary" @click="alertsView.sendTest('email')" style="margin:0;font-size:0.85rem;">Test Email</button><button class="outline secondary" @click="alertsView.sendTest('discord')" style="margin:0;font-size:0.85rem;">Test Discord</button></div></div><article :class="{'alert-card-firing': alertsView.activeAlerts.length > 0}"><header style="display:flex;justify-content:space-between;align-items:center;"><h4 style="margin:0;">Active Firing Alerts</h4><span :class="'badge badge-' + (alertsView.activeAlerts.length ? 'critical' : 'success')" v-text="alertsView.activeAlerts.length ? alertsView.activeAlerts.length + ' FIRING' : 'ALL CLEAR'"></span></header><p v-if="!alertsView.activeAlerts.length" style="margin:0;color:var(--pico-muted-color);">No active firing alerts across monitored targets.</p><div v-else style="overflow-x:auto;"><table class="striped" style="margin:0;"><thead><tr><th>Target</th><th>Rule</th><th>Severity</th><th>Since</th><th>Live Summary</th></tr></thead><tbody><tr v-for="a in alertsView.activeAlerts" :key="a.rule_id+'-'+a.target"><td><strong v-text="a.target"></strong></td><td>Rule #<span v-text="a.rule_id"></span></td><td><span class="badge badge-critical">CRITICAL</span></td><td v-text="alertsView.formatTime(a.firing_since)"></td><td v-text="a.last_summary || '--'"></td></tr></tbody></table></div></article><div class="alert-tabs"><button v-for="tb in [{k:'rules',n:'Configured Rules ('+alertsView.rules.length+')'},{k:'history',n:'Alert History ('+alertsView.historyEvents.length+')'}]" :key="tb.k" class="alert-tab-btn" :class="{active: alertsView.activeTab===tb.k}" @click="alertsView.activeTab=tb.k" v-text="tb.n"></button></div><article v-if="alertsView.activeTab === 'rules'"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;gap:1rem;"><input type="search" v-model="alertsView.ruleSearch" placeholder="Filter rules..." style="margin:0;max-width:320px;"/><small style="color:var(--pico-muted-color);">Showing {{ alertsView.filteredRules().length }} of {{ alertsView.rules.length }} rules</small></div><div style="overflow-x:auto;"><table class="striped"><thead><tr><th style="width:40px;">On</th><th>Rule</th><th>Kind</th><th>Target</th><th>Severity</th><th>Condition</th><th>For</th><th>Cooldown</th><th>Channels</th><th>State</th><th style="text-align:right;">Actions</th></tr></thead><tbody><tr v-if="!alertsView.filteredRules().length"><td colspan="11" style="text-align:center;color:var(--pico-muted-color);padding:2rem;">No alert rules found.</td></tr><tr v-for="r in alertsView.filteredRules()" :key="r.id"><td><input type="checkbox" :checked="r.enabled" @change="alertsView.toggleRule(r)" style="margin:0;"/></td><td><strong v-text="r.name"></strong></td><td><span class="badge" style="text-transform:uppercase;" v-text="r.kind"></span></td><td><code v-text="r.target"></code></td><td><span :class="'badge badge-' + r.severity" v-text="r.severity"></span></td><td><code style="font-size:0.8rem;" v-text="alertsView.formatCondition(r)"></code></td><td v-text="alertsView.formatDuration(r.for_sec)"></td><td v-text="alertsView.formatDuration(r.cooldown_sec)"></td><td><small v-text="(r.channels || []).join(', ')"></small></td><td><span :class="'status-pill status-' + (r.live_state || 'ok')"><span class="status-dot"></span><span v-text="(r.live_state || 'ok').toUpperCase()"></span></span></td><td style="text-align:right;white-space:nowrap;"><button class="outline secondary" style="padding:0.2rem 0.5rem;font-size:0.75rem;margin-right:0.25rem;margin-bottom:0;" @click="alertsView.openEditModal(r)">Edit</button><button class="outline secondary" style="padding:0.2rem 0.5rem;font-size:0.75rem;margin-bottom:0;color:#dc2626;border-color:#dc2626;" @click="alertsView.deleteRule(r)">Delete</button></td></tr></tbody></table></div></article><article v-if="alertsView.activeTab === 'history'"><div style="display:flex;gap:1rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap;"><label style="margin:0;display:flex;align-items:center;gap:0.4rem;"><small>Severity:</small><select v-model="alertsView.historySeverity" @change="alertsView.fetchHistory(false)" style="margin:0;width:auto;"><option value="">All</option><option v-for="s in ['critical','warning','info']" :key="s" :value="s">{{s}}</option></select></label><label style="margin:0;display:flex;align-items:center;gap:0.4rem;"><small>State:</small><select v-model="alertsView.historyState" @change="alertsView.fetchHistory(false)" style="margin:0;width:auto;"><option value="">All</option><option value="firing">Firing</option><option value="resolved">Resolved</option></select></label><button class="outline secondary" style="margin:0;padding:0.25rem 0.6rem;font-size:0.8rem;" @click="alertsView.fetchHistory(false)">Refresh</button></div><div style="overflow-x:auto;"><table class="striped"><thead><tr><th>Started (UTC)</th><th>Rule</th><th>Target</th><th>Severity</th><th>State</th><th>Summary</th><th>Resolved</th><th>Delivery</th></tr></thead><tbody><tr v-if="!alertsView.historyEvents.length"><td colspan="8" style="text-align:center;color:var(--pico-muted-color);padding:2rem;">No alert events recorded yet.</td></tr><tr v-for="ev in alertsView.historyEvents" :key="ev.id"><td v-text="alertsView.formatTime(ev.started)"></td><td><strong v-text="ev.rule_name"></strong></td><td><code v-text="ev.target"></code></td><td><span :class="'badge badge-' + ev.severity" v-text="ev.severity"></span></td><td><span :class="'status-pill status-' + (ev.state === 'firing' ? 'firing' : 'ok')"><span class="status-dot"></span><span v-text="(ev.state || '').toUpperCase()"></span></span></td><td v-text="ev.summary"></td><td v-text="ev.resolved > 0 ? alertsView.formatTime(ev.resolved) : '--'"></td><td><small v-text="ev.notify_status || '--'"></small></td></tr></tbody></table></div><div v-if="alertsView.historyHasMore" style="text-align:center;margin-top:1rem;"><button class="outline" :aria-busy="alertsView.historyLoading" @click="alertsView.fetchHistory(true)">Load More</button></div></article><dialog :open="alertsView.modalOpen" class="rule-builder-dialog"><article style="max-width:720px;width:100%;"><header><h3 style="margin:0;" v-text="alertsView.isEditing ? 'Edit Alert Rule' : 'Create Alert Rule'"></h3></header><form @submit.prevent="alertsView.saveRule()"><div class="grid"><label>Rule Name *<input type="text" v-model="alertsView.ruleForm.name" placeholder="e.g. High API Host CPU" required/></label><label>Severity *<select v-model="alertsView.ruleForm.severity"><option v-for="s in ['critical','warning','info']" :key="s" :value="s">{{s}}</option></select></label></div><div style="display:flex;gap:0.5rem;margin-bottom:1rem;"><button v-for="k in ['metric','log','container']" :key="k" type="button" class="outline" :class="{active: alertsView.ruleForm.kind === k}" style="flex:1;" @click="alertsView.ruleForm.kind = k" v-text="k.toUpperCase()"></button></div><label>Target Entity *<input type="text" v-model="alertsView.ruleForm.target" placeholder="host, disk:/, api-*, *" required/><small style="color:var(--pico-muted-color);">Use <code>host</code>, <code>disk:/</code>, container name or wildcard (<code>*</code>, <code>api-*</code>)</small></label><fieldset v-if="alertsView.ruleForm.kind === 'metric'" style="margin-top:1rem;"><legend><strong>Metric Condition</strong></legend><div class="grid"><label>Metric<select v-model="alertsView.ruleForm.metricName"><option v-for="m in ['host_cpu_pct','host_mem_used_pct','host_disk_used_pct','container_cpu_pct','container_mem_pct']" :key="m" :value="m">{{m}}</option></select></label><label>Op<select v-model="alertsView.ruleForm.metricOp"><option v-for="op in ['>','>=','<','<=','==']" :key="op" :value="op">{{op}}</option></select></label><label>Threshold<input type="number" step="0.1" v-model="alertsView.ruleForm.metricThreshold" required/></label></div></fieldset><fieldset v-if="alertsView.ruleForm.kind === 'log'" style="margin-top:1rem;"><legend><strong>Log Condition</strong></legend><label>Pattern *<input type="text" v-model="alertsView.ruleForm.logPattern" placeholder="e.g. panic: runtime error" required/></label><div class="grid"><label><input type="checkbox" v-model="alertsView.ruleForm.logIsRegex"/> Regex</label><label>Min Level<select v-model.number="alertsView.ruleForm.logMinLevel"><option :value="0">Any</option><option :value="4">WARN</option><option :value="5">ERROR</option></select></label><label>Hits<input type="number" v-model.number="alertsView.ruleForm.logThreshold" min="1" max="1000"/></label><label>Window (s)<input type="number" v-model.number="alertsView.ruleForm.logWindowSec" min="10" max="3600"/></label></div></fieldset><fieldset v-if="alertsView.ruleForm.kind === 'container'" style="margin-top:1rem;"><legend><strong>Container Events</strong></legend><div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:0.5rem;"><label v-for="e in ['oom','die','restart','stop','down']" :key="e"><input type="checkbox" v-model="alertsView.ruleForm.containerEvents[e]"/> {{e.toUpperCase()}}</label></div><div class="grid"><label>Hits<input type="number" v-model.number="alertsView.ruleForm.containerThreshold" min="1" max="100"/></label><label>Window (s)<input type="number" v-model.number="alertsView.ruleForm.containerWindowSec" min="0" max="3600"/></label></div></fieldset><div class="grid" style="margin-top:1rem;"><label>Sustained For (s)<input type="number" v-model.number="alertsView.ruleForm.for_sec" min="0" max="86400"/></label><label>Cooldown (s)<input type="number" v-model.number="alertsView.ruleForm.cooldown_sec" min="0" max="86400"/></label></div><label style="margin-top:0.5rem;">Notification Channels *</label><div style="display:flex;gap:1.5rem;margin-bottom:1rem;"><label v-for="ch in ['email','discord']" :key="ch"><input type="checkbox" v-model="alertsView.ruleForm.channels[ch]"/> {{ch.toUpperCase()}}</label></div><div><button type="button" class="outline secondary" :aria-busy="alertsView.previewLoading" @click="alertsView.runPreview()" style="margin:0;">Dry-Run Preview</button></div><div v-if="alertsView.previewResult" class="preview-box" :class="alertsView.previewResult?.would_fire_now ? 'preview-firing' : 'preview-clear'"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;"><strong>Preview Result:</strong><span :class="'badge ' + (alertsView.previewResult?.would_fire_now ? 'badge-critical' : 'badge-success')" v-text="alertsView.previewResult?.would_fire_now ? 'WOULD FIRE NOW' : 'CONDITION SATISFIED / OK'"></span></div><ul v-if="alertsView.previewResult?.matched_targets && alertsView.previewResult.matched_targets.length" style="margin-bottom:0.5rem;padding-left:1.25rem;"><li v-for="m in (alertsView.previewResult?.matched_targets || [])" :key="m.target" style="font-size:0.85rem;"><code v-text="m.target"></code>: <span v-text="m.summary"></span></li></ul><div v-if="alertsView.previewResult?.sample_lines && alertsView.previewResult.sample_lines.length"><small><strong>Recent Matching Log Lines ({{ alertsView.previewResult?.recent_matches_24h || 0 }} hits):</strong></small><pre style="margin:0;font-size:0.75rem;padding:0.4rem;background:var(--pico-code-background-color);border-radius:4px;max-height:100px;overflow-y:auto;"><code v-for="line in (alertsView.previewResult?.sample_lines || [])" style="display:block;" v-text="line"></code></pre></div></div><footer style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1.5rem;"><button type="button" class="outline secondary" @click="alertsView.closeModal()" style="margin:0;">Cancel</button><button type="submit" :aria-busy="alertsView.modalLoading" style="margin:0;">{{ alertsView.isEditing ? 'Save Changes' : 'Create Rule' }}</button></footer></form></article></dialog></section><section v-if="store.route === 'settings'" @vue:mounted="settingsView.mounted()"><h2>System Settings & Storage Health</h2><div class="grid"><article v-if="store.systemHealth"><header><h4>System Health</h4></header><p><strong>Status:</strong> <span class="badge badge-success" v-text="store.systemHealth.status"></span></p><p><strong>Uptime:</strong> <span v-text="store.systemHealth.uptime_seconds"></span> seconds</p><p><strong>Go Version:</strong> <code v-text="store.systemHealth.go_version"></code></p><p><strong>Tarsier Version:</strong> <span v-text="store.systemHealth.version"></span></p><div v-if="store.systemHealth.memory"><p><strong>Memory Alloc:</strong> <span v-text="(store.systemHealth.memory.alloc_bytes / 1048576).toFixed(2)"></span> MB</p><p><strong>GC Cycles:</strong> <span v-text="store.systemHealth.memory.num_gc"></span></p></div></article><article v-if="store.systemConfig"><header><h4>Configuration Summary</h4></header><p><strong>Server Listen:</strong> <code v-text="store.systemConfig?.server?.listen"></code></p><p><strong>Timezone:</strong> <span v-text="store.systemConfig?.server?.timezone"></span></p><p><strong>Storage Path:</strong> <code v-text="store.systemConfig?.storage?.path"></code></p><p><strong>Log Cap / Metric Cap:</strong> <span v-text="(store.systemConfig?.storage?.logs_max_size || '--') + ' / ' + (store.systemConfig?.storage?.metrics_max_size || '--')"></span></p><p><strong>Retention:</strong> <span v-text="'Logs: ' + (store.systemConfig?.retention?.logs || '--') + ', Raw: ' + (store.systemConfig?.retention?.metrics_raw || '--')"></span></p></article></div><article v-if="store.systemHealth && store.systemHealth.storage" style="margin-top: 1.5rem;"><header style="display:flex; justify-content:space-between; align-items:center;"><h4 style="margin-bottom:0;">Storage Consumption & Limits</h4><span class="badge badge-info" v-text="store.systemHealth.storage.logs_chunk_files + ' Log Chunks (.chunk)'"></span></header><div class="grid"><div><div style="display:flex; justify-content:space-between; font-size:0.85rem;"><strong>Logs Directory Size</strong><span>{{ settingsView.formatBytes(store.systemHealth.storage.logs_dir_bytes) }} / {{ settingsView.formatBytes(store.systemHealth.storage.logs_max_bytes) }} ({{ store.systemHealth.storage.logs_max_bytes > 0 ? Math.min(100, Math.round((store.systemHealth.storage.logs_dir_bytes / store.systemHealth.storage.logs_max_bytes) * 100)) : 0 }}%)</span></div><div class="storage-bar"><div class="storage-bar-fill" :class="store.systemHealth.storage.logs_max_bytes > 0 && (store.systemHealth.storage.logs_dir_bytes / store.systemHealth.storage.logs_max_bytes) > 0.85 ? 'storage-bar-danger' : 'storage-bar-normal'" :style="'width: ' + (store.systemHealth.storage.logs_max_bytes > 0 ? Math.min(100, Math.round((store.systemHealth.storage.logs_dir_bytes / store.systemHealth.storage.logs_max_bytes) * 100)) : 0) + '%;'"></div></div><small style="color:var(--pico-muted-color);">Storage path: <code>{{ store.systemConfig?.storage?.path ? store.systemConfig.storage.path + '/logs' : '/data/logs' }}</code></small></div><div><strong>Database Store Sizes</strong><table class="striped" style="margin-top:0.35rem; font-size:0.85rem;"><thead><tr><th>Database</th><th>Total</th><th>WAL</th><th>Freelist</th></tr></thead><tbody><tr><td><code>metrics.db</code></td><td v-text="settingsView.formatBytes(store.systemHealth.storage.metrics_db.total_bytes)"></td><td v-text="settingsView.formatBytes(store.systemHealth.storage.metrics_db.wal_bytes)"></td><td v-text="settingsView.formatBytes(store.systemHealth.storage.metrics_db.freelist_bytes)"></td></tr><tr><td><code>config.db</code></td><td v-text="settingsView.formatBytes(store.systemHealth.storage.config_db.total_bytes)"></td><td v-text="settingsView.formatBytes(store.systemHealth.storage.config_db.wal_bytes)"></td><td v-text="settingsView.formatBytes(store.systemHealth.storage.config_db.freelist_bytes)"></td></tr></tbody></table></div></div><div v-if="store.systemConfig && store.systemConfig.retention" style="margin-top: 1rem;"><strong>Configured Retention Windows</strong><div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.35rem;"><span class="badge badge-muted">Logs: <strong v-text="store.systemConfig?.retention?.logs"></strong></span><span class="badge badge-muted">Metrics Raw: <strong v-text="store.systemConfig?.retention?.metrics_raw"></strong></span><span class="badge badge-muted">Metrics 1m: <strong v-text="store.systemConfig?.retention?.metrics_1m"></strong></span><span class="badge badge-muted">Metrics 5m: <strong v-text="store.systemConfig?.retention?.metrics_5m"></strong></span><span class="badge badge-muted">Metrics 1d: <strong v-text="store.systemConfig?.retention?.metrics_1d"></strong></span></div></div></article><article style="margin-top: 1.5rem;"><header><h4 style="margin-bottom:0;">Retention & Maintenance Actions</h4></header><div class="settings-actions"><button class="outline" :aria-busy="settingsView.dryRunLoading" @click="settingsView.triggerDryRun()" style="margin:0;">Dry-Run Preview</button><button class="outline" style="margin:0; color:#dc2626; border-color:#dc2626;" @click="settingsView.openConfirmRun()">Trigger Cleanup Now</button><button class="outline secondary" :aria-busy="settingsView.reloadLoading" @click="settingsView.reloadConfig()" style="margin:0;">Reload Configuration</button><button class="outline secondary" @click="settingsView.downloadTemplate('markdown')" style="margin:0;">Download Markdown Template</button><button class="outline secondary" @click="settingsView.downloadTemplate('html')" style="margin:0;">Download HTML Template</button><button class="outline secondary" @click="settingsView.openTemplateModal()" style="margin:0;">Test Custom Template</button></div></article><article style="margin-top: 1.5rem;"><header style="display:flex; justify-content:space-between; align-items:center;"><h4 style="margin-bottom:0;">Cleanup Execution History</h4><button class="outline secondary" style="padding:0.25rem 0.6rem; font-size:0.8rem; margin:0;" @click="settingsView.fetchHistory()">Refresh History</button></header><div style="overflow-x:auto;"><table class="striped" style="margin-bottom:0; font-size:0.85rem;"><thead><tr><th>ID</th><th>Trigger</th><th>Mode</th><th>Started At (UTC)</th><th>Duration</th><th>Reclaimed</th><th>Purged Items</th><th>Report Status</th><th style="text-align:right;">Actions</th></tr></thead><tbody><tr v-if="!settingsView.history.length"><td colspan="9" style="text-align:center; color:var(--pico-muted-color); padding:2rem;">No cleanup runs recorded yet.</td></tr><tr v-for="h in settingsView.history" :key="h.id"><td>#<span v-text="h.id"></span></td><td><span :class="'status-pill status-' + h.trigger" v-text="h.trigger.toUpperCase()"></span></td><td><span :class="'badge ' + (h.dry_run ? 'badge-warning' : 'badge-success')" v-text="h.dry_run ? 'DRY RUN' : 'PRUNED'"></span></td><td><small v-text="h.started_at"></small></td><td><span v-text="settingsView.formatDuration ? settingsView.formatDuration(h.duration_ms) : (h.duration_ms + ' ms')"></span></td><td><strong v-text="settingsView.formatBytes(h.bytes_reclaimed)"></strong></td><td><small v-text="h.logs_deleted + ' logs, ' + h.metrics_deleted + ' metrics, ' + h.events_deleted + ' events'"></small></td><td><span :class="'badge ' + (h.report_status === 'sent' ? 'badge-success' : (h.report_status === 'failed' ? 'badge-danger' : 'badge-muted'))" v-text="h.report_status.toUpperCase()"></span></td><td style="text-align:right;"><button class="outline secondary btn-micro" @click="settingsView.viewReport(h.id)">View Report</button></td></tr></tbody></table></div></article><dialog :open="settingsView.reportModalOpen" class="modal-wide"><article><header><div style="display:flex; justify-content:space-between; align-items:center;"><h4 style="margin-bottom:0;">Pre-Cleanup Report <span v-if="settingsView.selectedReport">#{{ settingsView.selectedReport?.id }} ({{ (settingsView.selectedReport?.trigger || '').toUpperCase() }})</span></h4><button class="toast-close" @click="settingsView.closeReportModal()" aria-label="Close dialog">&times;</button></div></header><div v-if="settingsView.reportLoading" style="text-align:center; padding:2rem;" aria-busy="true">Loading stored report...</div><div v-else-if="settingsView.selectedReport"><div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; font-size:0.85rem;"><span><strong>Started:</strong> {{ settingsView.selectedReport?.started_at }}</span><span><strong>Format:</strong> <code v-text="settingsView.selectedReport?.report_format"></code></span><span><strong>Mode:</strong> <span :class="'badge ' + (settingsView.selectedReport?.dry_run ? 'badge-warning' : 'badge-success')" v-text="settingsView.selectedReport?.dry_run ? 'DRY RUN' : 'ACTIVE PRUNE'"></span></span><span><strong>Delivery:</strong> <span class="badge badge-info" v-text="settingsView.selectedReport?.report_status"></span></span></div><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;"><small style="color:var(--pico-muted-color);">Viewing formatted report</small><button v-if="settingsView.toggleReportViewMode" class="outline secondary btn-micro" style="margin:0;" @click="settingsView.toggleReportViewMode()">{{ settingsView.reportViewMode === 'raw' ? 'View Rendered' : 'View Raw Source' }}</button></div><div v-if="settingsView.reportViewMode === 'raw'"><pre class="modal-code-viewer"><code v-text="settingsView.selectedReport?.report_body"></code></pre></div><div v-else-if="settingsView.getReportSrcdoc"><iframe sandbox="" :srcdoc="settingsView.getReportSrcdoc()" style="width:100%; height:450px; border:1px solid var(--pico-muted-border-color); border-radius:4px; background:#ffffff;"></iframe></div><div v-else-if="settingsView.selectedReport?.report_format === 'html'"><iframe sandbox="" :srcdoc="settingsView.selectedReport?.report_body" style="width:100%; height:450px; border:1px solid var(--pico-muted-border-color); border-radius:4px;"></iframe></div><div v-else><pre class="modal-code-viewer"><code v-text="settingsView.selectedReport?.report_body"></code></pre></div></div><footer><div style="display:flex; justify-content:flex-end;"><button class="secondary" @click="settingsView.closeReportModal()">Close</button></div></footer></article></dialog><dialog :open="settingsView.confirmRunModalOpen"><article style="max-width:500px; margin:0 auto;"><header><h4 style="margin-bottom:0; color:#dc2626;">⚠️ Confirm Manual Cleanup</h4></header><p style="margin-top:1rem;">Are you sure you want to trigger a full retention cleanup cycle? This will permanently delete expired log chunks, prune metric tables, and run database maintenance compaction.</p><footer><div style="display:flex; justify-content:flex-end; gap:0.5rem;"><button class="outline secondary" @click="settingsView.closeConfirmRun()">Cancel</button><button style="color:#ffffff; background-color:#dc2626; border-color:#dc2626;" :aria-busy="settingsView.manualRunLoading" @click="settingsView.triggerCleanup()">Execute Cleanup</button></div></footer></article></dialog><dialog :open="settingsView.templateModalOpen" class="modal-wide"><article><header><div style="display:flex; justify-content:space-between; align-items:center;"><h4 style="margin-bottom:0;">Test Custom Pre-Cleanup Template</h4><button class="toast-close" @click="settingsView.closeTemplateModal()" aria-label="Close dialog">&times;</button></div></header><form @submit.prevent="settingsView.previewTemplate()"><div class="grid"><label>Template Format<select v-model="settingsView.templateFormat" style="margin-bottom:0.5rem;"><option value="markdown">Markdown (text/template)</option><option value="html">HTML (html/template)</option></select></label></div><label>Template Source<textarea v-model="settingsView.templateInput" rows="8" placeholder="Paste your Go template here (uses .TotalLogsPurged, .Sources, .TopErrorPatterns, formatBytes...)" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.85rem;" required></textarea></label><div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.5rem;"><button type="submit" class="outline" :aria-busy="settingsView.templateLoading" style="margin:0;">Render Live Preview</button><span v-if="settingsView.templateError" class="badge badge-danger" v-text="settingsView.templateError"></span></div></form><div v-if="settingsView.templatePreview" style="margin-top:1.5rem;"><header style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;"><h5>Rendered Output Preview</h5><button v-if="settingsView.toggleTemplatePreviewMode" type="button" class="outline secondary btn-micro" style="margin:0;" @click="settingsView.toggleTemplatePreviewMode()">{{ settingsView.templatePreviewMode === 'raw' ? 'View Rendered' : 'View Raw Source' }}</button></header><div v-if="settingsView.templatePreviewMode === 'raw'"><pre class="modal-code-viewer"><code v-text="settingsView.templatePreview"></code></pre></div><div v-else-if="settingsView.getTemplatePreviewSrcdoc"><iframe sandbox="" :srcdoc="settingsView.getTemplatePreviewSrcdoc()" style="width:100%; height:350px; border:1px solid var(--pico-muted-border-color); border-radius:4px; background:#ffffff;"></iframe></div><div v-else-if="settingsView.templateFormat === 'html'"><iframe sandbox="" :srcdoc="settingsView.templatePreview" style="width:100%; height:350px; border:1px solid var(--pico-muted-border-color); border-radius:4px;"></iframe></div><div v-else><pre class="modal-code-viewer"><code v-text="settingsView.templatePreview"></code></pre></div></div><footer style="margin-top:1.5rem;"><div style="display:flex; justify-content:flex-end;"><button class="secondary" @click="settingsView.closeTemplateModal()">Close</button></div></footer></article></dialog></section></main></div><script src="/static/js/app.js?v=2"></script></body></html>
+>
+              <button class="outline" @click="containersView.refresh()" title="Refresh container list">
+                Refresh
+              </button>
+            </div>
+          </div>
+          <div class="alert-tabs" style="margin-bottom: 1rem;">
+            <button class="alert-tab-btn" :class="{ active: containersView.activeTab === 'running' }" @click="containersView.activeTab = 'running'">
+              Running (
+              <span v-text="containersView.runningContainers.length">
+              </span>
+              )
+            </button>
+            <button class="alert-tab-btn" :class="{ active: containersView.activeTab === 'exited' }" @click="containersView.activeTab = 'exited'">
+              Exited (
+              <span v-text="containersView.exitedContainers.length">
+              </span>
+              )
+            </button>
+          </div>
+          <article v-if="!containersView.dockerConnected" style="background-color: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.3); margin-bottom: 1.5rem; padding: 0.75rem 1rem;">
+            <p style="margin-bottom: 0; color: #ca8a04;">
+              <strong>
+                Docker daemon disconnected
+              </strong>
+              — showing last known container state from local cache.
+            </p>
+          </article>
+          <article>
+            <table class="striped">
+              <thead>
+                <tr>
+                  <th class="sortable" @click="containersView.setSort('name')">
+                    Container Name
+                    <span v-if="containersView.sortCol === 'name'">
+                      {{ containersView.sortAsc ? '▲' : '▼' }}
+                    </span>
+                  </th>
+                  <th class="sortable" @click="containersView.setSort('cpu')">
+                    Stats (CPU &amp; RAM)
+                    <span v-if="containersView.sortCol === 'cpu'">
+                      {{ containersView.sortAsc ? '▲' : '▼' }}
+                    </span>
+                  </th>
+                  <th>
+                    NET I/O
+                  </th>
+                  <th style="text-align: right;">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="containersView.filteredContainers.length === 0">
+                  <td colspan="4" style="text-align: center; color: var(--pico-muted-color);">
+                    No {{ containersView.activeTab }} containers found.
+                  </td>
+                </tr>
+                <tr v-for="c in containersView.filteredContainers" :key="c.id">
+                  <td>
+                    <div>
+                      <span :class="'hollow-circle ' + containersView.getHealthCircleClass(c)" :title="c.health || c.state">
+                      </span>
+                      <strong v-text="c.name">
+                      </strong>
+                    </div>
+                    <small style="color: var(--pico-muted-color); font-size: 0.75rem;" v-text="c.image">
+                    </small>
+                  </td>
+                  <td>
+                    <div>
+                      <small style="color: var(--pico-muted-color);">
+                        CPU:
+                      </small>
+                      <strong>
+                        {{ (c.metrics && c.metrics.cpu_pct != null ? c.metrics.cpu_pct.toFixed(1) : '0.0') }}% / 100%
+                      </strong>
+                    </div>
+                    <div>
+                      <small style="color: var(--pico-muted-color);">
+                        RAM:
+                      </small>
+                      <strong>
+                        {{ containersView.formatBytes(c.metrics ? c.metrics.mem_used : 0) }} / {{ containersView.formatBytes(c.metrics ? c.metrics.mem_limit : 0) }}
+                      </strong>
+                    </div>
+                    <div style="margin-top: 0.2rem;">
+                      <span class="badge badge-warning" style="font-size: 0.7rem; padding: 0.1rem 0.35rem;">
+                        Restarts: {{ c.restart_count }}
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    <div>
+                      <small style="color: var(--pico-muted-color);">
+                        IN:
+                      </small>
+                      <span v-text="containersView.formatBps(c.metrics ? c.metrics.net_rx_bps : 0)">
+                      </span>
+                    </div>
+                    <div>
+                      <small style="color: var(--pico-muted-color);">
+                        OUT:
+                      </small>
+                      <span v-text="containersView.formatBps(c.metrics ? c.metrics.net_tx_bps : 0)">
+                      </span>
+                    </div>
+                  </td>
+                  <td style="text-align: right;">
+                    <a :href="'#container-detail?container=' + encodeURIComponent(c.name)" role="button" class="outline secondary" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; margin-right: 0.3rem;" @click.prevent="containersView.openDetail(c.name)">
+                      Details
+                    </a>
+                    <a :href="'#logs?container=' + encodeURIComponent(c.name)" role="button" class="outline" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" @click="containersView.viewLogs(c.name)">
+                      Logs
+                    </a>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+        </section>
+        <section v-if="store.route === 'container-detail'" @vue:mounted="containersView.detailMounted()" @vue:unmounted="containersView.detailUnmounted()">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h2 style="margin-bottom: 0;">
+              Container Details
+            </h2>
+            <a href="#containers" class="detail-back-link" @click.prevent="containersView.closeDetail()">
+              &larr; Back to Containers
+            </a>
+          </div>
+          <article v-if="containersView.detailData">
+            <header style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
+              <div>
+                <h3 style="margin-bottom: 0.25rem; display: flex; align-items: center;">
+                  <span :class="'hollow-circle ' + containersView.getHealthCircleClass(containersView.detailData.container)">
+                  </span>
+                  <span v-text="containersView.detailData.container.name">
+                  </span>
+                  <span :class="'status-pill status-' + containersView.detailData.container.health" style="margin-left: 0.5rem; font-size: 0.75rem;">
+                    <span class="status-dot">
+                    </span>
+                    <span v-text="containersView.detailData.container.state">
+                    </span>
+                  </span>
+                </h3>
+                <small style="color: var(--pico-muted-color);" v-text="containersView.detailData.container.image">
+                </small>
+              </div>
+              <div>
+                <button class="outline" style="padding: 0.35rem 0.8rem; font-size: 0.85rem;" @click="containersView.viewLogs(containersView.detailData.container.name)">
+                  View Logs &rarr;
+                </button>
+              </div>
+            </header>
+            <div class="metric-grid" style="margin-bottom: 1rem;">
+              <article class="metric-card">
+                <div class="metric-title">
+                  Uptime
+                </div>
+                <div class="metric-row-main" v-text="containersView.formatUptime(containersView.detailData.container.uptime_s)">
+                </div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-title">
+                  Restarts
+                </div>
+                <div class="metric-row-main">
+                  <span :class="containersView.detailData.container.restart_count > 0 ? 'badge badge-warning' : 'badge badge-muted'" v-text="containersView.detailData.container.restart_count">
+                  </span>
+                </div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-title">
+                  First Seen
+                </div>
+                <div class="metric-row-main" style="font-size: 0.85rem;" v-text="containersView.detailData.container.first_seen">
+                </div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-title">
+                  Last Seen
+                </div>
+                <div class="metric-row-main" style="font-size: 0.85rem;" v-text="containersView.detailData.container.last_seen">
+                </div>
+              </article>
+            </div>
+            <div class="charts-grid" style="margin-bottom: 1.5rem;">
+              <article class="chart-card">
+                <header>
+                  <h4>
+                    CPU Utilization (%)
+                  </h4>
+                </header>
+                <div id="detail-chart-cpu" class="chart-panel" style="height: 180px;">
+                </div>
+              </article>
+              <article class="chart-card">
+                <header>
+                  <h4>
+                    Memory Usage
+                  </h4>
+                </header>
+                <div id="detail-chart-mem" class="chart-panel" style="height: 180px;">
+                </div>
+              </article>
+            </div>
+            <article class="chart-card" style="margin-bottom: 1.5rem;">
+              <header>
+                <h4>
+                  Network Throughput (RX / TX)
+                </h4>
+              </header>
+              <div id="detail-chart-net" class="chart-panel" style="height: 180px;">
+              </div>
+            </article>
+            <article style="margin-bottom: 1.5rem;">
+              <header>
+                <h4>
+                  Daily Average vs. Peak History
+                </h4>
+              </header>
+              <table class="striped">
+                <thead>
+                  <tr>
+                    <th>
+                      Date
+                    </th>
+                    <th>
+                      CPU Avg %
+                    </th>
+                    <th>
+                      CPU Peak %
+                    </th>
+                    <th>
+                      RAM Avg
+                    </th>
+                    <th>
+                      RAM Peak
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="containersView.detailData.daily_history.length === 0">
+                    <td colspan="5" style="text-align: center; color: var(--pico-muted-color);">
+                      No daily rollups recorded yet.
+                    </td>
+                  </tr>
+                  <tr v-for="dh in containersView.detailData.daily_history" :key="dh.date">
+                    <td>
+                      <code v-text="dh.date">
+                      </code>
+                    </td>
+                    <td v-text="dh.cpu.avg_pct.toFixed(1) + '%'">
+                    </td>
+                    <td>
+                      <strong v-text="dh.cpu.peak_pct.toFixed(1) + '%'">
+                      </strong>
+                    </td>
+                    <td v-text="containersView.formatBytes(dh.ram.avg_bytes)">
+                    </td>
+                    <td>
+                      <strong v-text="containersView.formatBytes(dh.ram.peak_bytes)">
+                      </strong>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </article>
+            <article>
+              <header>
+                <h4>
+                  Recent Lifecycle Events
+                </h4>
+              </header>
+              <table class="striped">
+                <thead>
+                  <tr>
+                    <th>
+                      Timestamp
+                    </th>
+                    <th>
+                      Action
+                    </th>
+                    <th>
+                      Details
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="containersView.detailData.recent_events.length === 0">
+                    <td colspan="3" style="text-align: center; color: var(--pico-muted-color);">
+                      No lifecycle events recorded.
+                    </td>
+                  </tr>
+                  <tr v-for="ev in containersView.detailData.recent_events" :key="ev.id">
+                    <td>
+                      <small v-text="ev.ts">
+                      </small>
+                    </td>
+                    <td>
+                      <span :class="'badge ' + (ev.type === 'start' ? 'badge-success' : (ev.type === 'restart' ? 'badge-warning' : 'badge-danger'))" v-text="ev.type">
+                      </span>
+                    </td>
+                    <td>
+                      <code v-text="ev.detail || '--'">
+                      </code>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </article>
+          </article>
+          <article v-else-if="containersView.detailLoading" aria-busy="true" style="padding: 2rem; text-align: center;">
+            <p>
+              Loading container details...
+            </p>
+          </article>
+          <article v-else>
+            <p>
+              Container not found or no data available.
+            </p>
+          </article>
+        </section>
+        <section v-if="store.route === 'logs'" :class="{ 'log-fullscreen': logsView.isFullscreen }" @vue:mounted="logsView.mounted()" @vue:unmounted="logsView.unmounted()">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <h2 style="margin-bottom: 0; display: inline-flex; align-items: center; gap: 0.5rem;">
+                Log Explorer
+              </h2>
+              <span class="live-pill" :class="{ 'paused': !logsView.polling, 'syncing': logsView.pollInflight }" :title="logsView.polling ? (logsView.pollInflight ? 'Fetching latest logs...' : 'Streaming live updates every 3s') : 'Live stream paused'">
+                <span class="live-dot">
+                </span>
+                <span v-if="logsView.pollInflight">
+                  Syncing...
+                </span>
+                <span v-else-if="logsView.polling">
+                  LIVE
+                </span>
+                <span v-else>
+                  PAUSED
+                </span>
+              </span>
+              <span v-if="logsView.newLogsCount > 0" class="badge-new-logs" v-text="'+' + logsView.newLogsCount + ' new'">
+              </span>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <button class="outline" :class="{ 'secondary': !logsView.polling }" @click="logsView.togglePolling()" style="margin-bottom: 0; padding: 0.3rem 0.65rem; font-size: 0.8rem;">
+                <span v-if="logsView.polling">
+                  &#10074;&#10074; Pause
+                </span>
+                <span v-else>
+                  &#9654; Resume
+                </span>
+              </button>
+              <button class="outline secondary" @click="logsView.refreshAll()" :aria-busy="logsView.loading" title="Reload sources and active logs" style="margin-bottom: 0; padding: 0.3rem 0.65rem; font-size: 0.8rem;">
+                Refresh
+              </button>
+              <button class="outline" :class="{ 'secondary': !logsView.isFullscreen }" @click="logsView.toggleFullscreen()" :title="logsView.isFullscreen ? 'Exit Fullscreen (Esc)' : 'Expand to Fullscreen'" style="margin-bottom: 0; padding: 0.3rem 0.65rem; font-size: 0.8rem;">
+                <span v-if="logsView.isFullscreen">
+                  &#x2715; Exit Fullscreen
+                </span>
+                <span v-else>
+                  &#x26F6; Fullscreen
+                </span>
+              </button>
+            </div>
+          </div>
+          <div class="log-query-card">
+            <div class="log-search-row">
+              <div class="log-search-input-wrap">
+                <span class="log-search-icon">
+                  &#x2315;
+                </span>
+                <input type="text" class="log-search-input" v-model="logsView.query" @input="logsView.onFilterChange()" @keydown.enter.prevent="logsView.onFilterChange()" placeholder="Filter log messages by keyword, substring, or regex (e.g. error, timeout, status=500)..." aria-label="Search logs">
+                <button v-if="logsView.query" type="button" class="log-clear-btn" @click="logsView.clearQuery()" title="Clear search query">
+                  &#x2715;
+                </button>
+              </div>
+              <button type="button" :class="logsView.regex ? '' : 'outline secondary'" @click="logsView.toggleRegex()" title="Toggle Regular Expression mode" style="padding: 0.3rem 0.65rem; font-size: 0.8rem; white-space: nowrap; margin-bottom: 0;">
+                .* Regex
+              </button>
+            </div>
+            <div class="log-filters-row">
+              <div class="log-filter-item log-source-filter-item" style="flex: 2; min-width: 240px; position: relative;" id="log-source-select-wrap">
+                <span class="log-filter-label">
+                  Source:
+                </span>
+                <div class="custom-select-wrap" style="flex: 1;">
+                  <button type="button" class="custom-select-trigger" @click="logsView.toggleSourceDropdown()" :aria-expanded="logsView.sourceDropdownOpen" title="Select or search log source">
+                    <div class="custom-select-selected-content" v-if="logsView.currentSource">
+                      <span v-if="logsView.isContainer(logsView.currentSource)" class="source-status-dot" :class="logsView.isContainerLive(logsView.currentSource) ? 'status-live' : 'status-dead'" :title="logsView.isContainerLive(logsView.currentSource) ? 'Container: Live / Running' : 'Container: Stopped / Exited'">
+                      </span>
+                      <span v-else class="source-status-dot status-file" title="File Source">
+                      </span>
+                      <span class="source-item-name" v-text="logsView.currentSource.name">
+                      </span>
+                      <span class="source-item-type" :class="'type-' + (logsView.currentSource.kind || 'log')" v-text="logsView.getSourceTypeLabel(logsView.currentSource)">
+                      </span>
+                    </div>
+                    <span class="custom-select-placeholder" v-else>
+                      -- Select Log Source --
+                    </span>
+                    <span class="custom-select-arrow" v-text="logsView.sourceDropdownOpen ? '▴' : '▾'">
+                    </span>
+                  </button>
+                  <div class="custom-select-menu" v-if="logsView.sourceDropdownOpen" @click.stop>
+                    <div class="custom-select-search-wrap">
+                      <span class="custom-select-search-icon">
+                        &#x2315;
+                      </span>
+                      <input type="text" id="log-source-search-input" class="custom-select-search-input" v-model="logsView.sourceSearchQuery" placeholder="Search containers or logs..." autocomplete="off" @keydown.esc="logsView.closeSourceDropdown()" @keydown.down.prevent="logsView.navigateSource(1)" @keydown.up.prevent="logsView.navigateSource(-1)" @keydown.enter.prevent="logsView.selectHighlightedSource()">
+                      <button v-if="logsView.sourceSearchQuery" type="button" class="custom-select-clear-btn" @click="logsView.sourceSearchQuery = ''" title="Clear search">
+                        &times;
+                      </button>
+                    </div>
+                    <div class="custom-select-options">
+                      <div v-if="logsView.filteredSources.length === 0" class="custom-select-empty">
+                        No matching sources found
+                      </div>
+                      <div v-for="(s, idx) in logsView.filteredSources" :key="s.id" class="custom-select-option" :class="{ 'selected': String(s.id) === logsView.selectedSource, 'highlighted': idx === logsView.highlightedSourceIndex }" @click="logsView.selectSource(s)" @mouseenter="logsView.highlightedSourceIndex = idx">
+                        <span v-if="logsView.isContainer(s)" class="source-status-dot" :class="logsView.isContainerLive(s) ? 'status-live' : 'status-dead'" :title="logsView.isContainerLive(s) ? 'Live (running)' : 'Dead (stopped/exited)'">
+                        </span>
+                        <span v-else class="source-status-dot status-file" title="File Source">
+                        </span>
+                        <span class="source-item-name" :title="s.name" v-text="s.name">
+                        </span>
+                        <span class="source-item-type" :class="'type-' + (s.kind || 'log')" v-text="logsView.getSourceTypeLabel(s)">
+                        </span>
+                        <span v-if="String(s.id) === logsView.selectedSource" class="source-selected-check">
+                          &#x2713;
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="log-filter-item" style="min-width: 130px;">
+                <span class="log-filter-label">
+                  Time:
+                </span>
+                <select v-model="logsView.timeRange" @change="logsView.onTimeRangeChange()" aria-label="Time Range Filter" style="flex: 1;">
+                  <option value="">
+                    All Time
+                  </option>
+                  <option value="15m">
+                    Last 15m
+                  </option>
+                  <option value="30m">
+                    Last 30m
+                  </option>
+                  <option value="1h">
+                    Last 1h
+                  </option>
+                  <option value="6h">
+                    Last 6h
+                  </option>
+                  <option value="12h">
+                    Last 12h
+                  </option>
+                  <option value="24h">
+                    Last 24h
+                  </option>
+                  <option value="7d">
+                    Last 7d
+                  </option>
+                  <option value="custom">
+                    Custom...
+                  </option>
+                </select>
+              </div>
+              <div class="log-filter-item log-custom-time-item" v-if="logsView.timeRange === 'custom'">
+                <span class="log-filter-label">
+                  From:
+                </span>
+                <input type="datetime-local" class="log-datetime-input" v-model="logsView.timeFrom" @change="logsView.onFilterChange()" title="Filter logs from this start time">
+              </div>
+              <div class="log-filter-item log-custom-time-item" v-if="logsView.timeRange === 'custom'">
+                <span class="log-filter-label">
+                  To:
+                </span>
+                <input type="datetime-local" class="log-datetime-input" v-model="logsView.timeTo" @change="logsView.onFilterChange()" title="Filter logs up to this end time">
+              </div>
+              <div class="log-filter-item" style="flex: 1; min-width: 120px;">
+                <span class="log-filter-label">
+                  Level:
+                </span>
+                <select v-model="logsView.level" @change="logsView.onFilterChange()" aria-label="Min Level Filter" style="flex: 1;">
+                  <option value="">
+                    All Levels
+                  </option>
+                  <option value="DEBUG">
+                    Debug+
+                  </option>
+                  <option value="INFO">
+                    Info+
+                  </option>
+                  <option value="WARN">
+                    Warn+
+                  </option>
+                  <option value="ERROR">
+                    Error+
+                  </option>
+                  <option value="FATAL">
+                    Fatal
+                  </option>
+                </select>
+              </div>
+              <div class="log-filter-item" style="flex: 1; min-width: 110px;">
+                <span class="log-filter-label">
+                  Stream:
+                </span>
+                <select v-model="logsView.stream" @change="logsView.onFilterChange()" aria-label="Stream Filter" style="flex: 1;">
+                  <option value="">
+                    All Streams
+                  </option>
+                  <option value="stdout">
+                    stdout
+                  </option>
+                  <option value="stderr">
+                    stderr
+                  </option>
+                </select>
+              </div>
+              <div class="log-filter-item" style="width: auto;">
+                <span class="log-filter-label">
+                  Limit:
+                </span>
+                <select v-model.number="logsView.limit" @change="logsView.onFilterChange()" aria-label="Page Limit">
+                  <option :value="50">
+                    50
+                  </option>
+                  <option :value="100">
+                    100
+                  </option>
+                  <option :value="250">
+                    250
+                  </option>
+                  <option :value="500">
+                    500
+                  </option>
+                </select>
+              </div>
+              <button type="button" class="outline secondary" @click="logsView.resetFilters()" title="Reset all query filters to defaults" style="padding: 0.2rem 0.55rem; font-size: 0.75rem; margin-bottom: 0; white-space: nowrap;">
+                Reset
+              </button>
+            </div>
+          </div>
+          <div class="log-info-bar">
+            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+              <span>
+                Showing:
+                <strong v-text="logsView.entries.length">
+                </strong>
+                entries
+              </span>
+              <span v-if="logsView.timeRange">
+                &bull; Range:
+                <strong v-text="logsView.timeRangeLabel">
+                </strong>
+              </span>
+              <span v-if="logsView.scannedBlocks > 0">
+                &bull; Scanned Blocks:
+                <strong v-text="logsView.scannedBlocks">
+                </strong>
+              </span>
+              <span>
+                &bull; Engine:
+                <strong v-text="logsView.fromCache ? 'Hot Tail Ring' : 'Compressed Disk Chunks'">
+                </strong>
+              </span>
+            </div>
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+              <a href="#" role="button" class="outline secondary btn-micro" @click.prevent="logsView.toggleWrap()" :title="logsView.wrapLines ? 'Click to disable line wrapping (single line with horizontal scroll)' : 'Click to wrap long log messages'">
+                <span v-if="logsView.wrapLines">
+                  &#8644; Wrap: ON
+                </span>
+                <span v-else>
+                  &#8644; Wrap: OFF (Scroll)
+                </span>
+              </a>
+              <span v-if="logsView.polling" style="color: var(--pico-primary);">
+                &#8226; Polling every 3s
+              </span>
+              <span v-else style="color: var(--pico-muted-color);">
+                &#8226; Stream paused
+              </span>
+            </div>
+          </div>
+          <p v-if="logsView.error" class="badge badge-danger" style="display: block; margin-bottom: 0.75rem;" v-text="logsView.error">
+          </p>
+          <div class="log-viewer log-viewer-responsive" :class="{ 'log-no-wrap': !logsView.wrapLines }">
+            <table class="log-table">
+              <thead>
+                <tr>
+                  <th style="width: 185px;" title="Logs ordered latest first">
+                    Timestamp &darr;
+                  </th>
+                  <th style="width: 75px;">
+                    Level
+                  </th>
+                  <th style="width: 75px;">
+                    Stream
+                  </th>
+                  <th>
+                    Message
+                  </th>
+                  <th style="width: 120px; text-align: right;">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="logsView.loading && logsView.entries.length === 0">
+                  <td colspan="5" style="text-align: center; padding: 2rem;" aria-busy="true">
+                    Scanning compressed log blocks...
+                  </td>
+                </tr>
+                <tr v-else-if="logsView.entries.length === 0">
+                  <td colspan="5" style="text-align: center; padding: 2rem; color: var(--pico-muted-color);">
+                    No log entries match the selected filters.
+                  </td>
+                </tr>
+                <tr v-for="entry in logsView.entries" :key="entry.id" class="log-row">
+                  <td>
+                    <small :title="entry.ts_src === 0 || entry.ts_src === 2 ? 'Inferred timestamp (~): no explicit timestamp detected in line payload' : 'Explicit timestamp'">
+                      <span v-if="entry.ts_src === 0 || entry.ts_src === 2" style="color: var(--pico-muted-color); font-weight: bold;">
+                        ~
+                      </span>
+                      <span v-text="logsView.formatTime(entry.ts)">
+                      </span>
+                    </small>
+                  </td>
+                  <td>
+                    <span :class="'badge ' + logsView.levelBadgeClass(entry.level) + (entry.level_src >= 3 ? ' badge-inferred' : '')" :title="entry.level_src >= 3 ? 'Inferred level: detected via keyword/status heuristic fallback' : 'Explicit level'" v-text="entry.level.toUpperCase()">
+                    </span>
+                  </td>
+                  <td>
+                    <small class="log-stream" v-text="entry.stream || '--'">
+                    </small>
+                  </td>
+                  <td class="log-msg" @click="logsView.toggleExpand(entry.id)">
+                    <div :class="{ 'log-msg-collapsed': logsView.expandedID !== entry.id }">
+                      <span v-for="(seg, sIdx) in logsView.highlightSegments(entry.line)" :key="sIdx" :class="{ 'log-match': seg.match }" v-text="seg.text">
+                      </span>
+                    </div>
+                  </td>
+                  <td style="text-align: right; white-space: nowrap;">
+                    <button class="outline secondary btn-micro" @click="logsView.openContext(entry)" title="Inspect surrounding ±20 lines">
+                      Context
+                    </button>
+                    <button class="outline secondary btn-micro" @click="logsView.copyLine(entry.line)" title="Copy line to clipboard">
+                      Copy
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="display: flex; justify-content: center; margin-top: 0.75rem;" v-if="logsView.hasMore">
+            <button class="outline" :aria-busy="logsView.loading" @click="logsView.loadOlder()" style="min-width: 200px; padding: 0.35rem 1rem; font-size: 0.85rem;">
+              Load older logs
+            </button>
+          </div>
+          <dialog class="modal-wide" :open="logsView.contextModalOpen">
+            <article>
+              <header>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <h4 style="margin-bottom: 0;">
+                    Log Line Surrounding Context (&plusmn;20 lines)
+                  </h4>
+                  <button class="toast-close" @click="logsView.closeContext()" aria-label="Close context dialog">
+                    &times;
+                  </button>
+                </div>
+              </header>
+              <div v-if="logsView.contextLoading" style="text-align: center; padding: 2rem;" aria-busy="true">
+                Reading surrounding log records from chunk...
+              </div>
+              <div v-else class="log-viewer" style="max-height: 60vh; overflow-y: auto;">
+                <table class="log-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 185px;">
+                        Timestamp
+                      </th>
+                      <th style="width: 75px;">
+                        Level
+                      </th>
+                      <th style="width: 75px;">
+                        Stream
+                      </th>
+                      <th>
+                        Message
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(ctxEntry, cIdx) in logsView.contextEntries" :key="ctxEntry.id"
+:class="{ 'log-context-target': cIdx === logsView.contextTargetIndex, 'log-row': true }">
+                      <td>
+                        <small>
+                          <span v-if="ctxEntry.ts_src === 0 || ctxEntry.ts_src === 2" style="color: var(--pico-muted-color); font-weight: bold;">
+                            ~
+                          </span>
+                          <span v-text="logsView.formatTime(ctxEntry.ts)">
+                          </span>
+                        </small>
+                      </td>
+                      <td>
+                        <span :class="'badge ' + logsView.levelBadgeClass(ctxEntry.level) + (ctxEntry.level_src >= 3 ? ' badge-inferred' : '')"
+v-text="ctxEntry.level.toUpperCase()">
+                        </span>
+                      </td>
+                      <td>
+                        <small class="log-stream" v-text="ctxEntry.stream || '--'">
+                        </small>
+                      </td>
+                      <td class="log-msg">
+                        <span v-text="ctxEntry.line">
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <footer>
+                <div style="display: flex; justify-content: flex-end;">
+                  <button class="secondary" @click="logsView.closeContext()">
+                    Close
+                  </button>
+                </div>
+              </footer>
+            </article>
+          </dialog>
+        </section>
+        <section v-if="store.route === 'alerts'" @vue:mounted="alertsView.mounted()" @vue:unmounted="alertsView.unmounted()">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">
+            <h2 style="margin:0;">
+              Alerts & Notifiers
+            </h2>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+              <button @click="alertsView.openCreateModal()" style="margin:0;">
+                + New Rule
+              </button>
+              <select style="margin:0;width:auto;font-size:0.85rem;" @change="if($event.target.value){alertsView.applyTemplate(alertsView.templates.find(t=>t.id===$event.target.value));$event.target.value='';}">
+                <option value="">
+                  Templates...
+                </option>
+                <option v-for="t in alertsView.templates" :key="t.id" :value="t.id" v-text="t.name">
+                </option>
+              </select>
+              <button class="outline secondary" @click="alertsView.exportRules()" style="margin:0;font-size:0.85rem;">
+                Export
+              </button>
+              <label role="button" class="outline secondary" style="margin:0;font-size:0.85rem;cursor:pointer;">
+                Import
+                <input type="file" accept=".json" @change="alertsView.importFile($event)" style="display:none;"/>
+              </label>
+              <button class="outline secondary" @click="alertsView.sendTest('email')" style="margin:0;font-size:0.85rem;">
+                Test Email
+              </button>
+              <button class="outline secondary" @click="alertsView.sendTest('discord')" style="margin:0;font-size:0.85rem;">
+                Test Discord
+              </button>
+            </div>
+          </div>
+          <article :class="{'alert-card-firing': alertsView.activeAlerts.length > 0}">
+            <header style="display:flex;justify-content:space-between;align-items:center;">
+              <h4 style="margin:0;">
+                Active Firing Alerts
+              </h4>
+              <span :class="'badge badge-' + (alertsView.activeAlerts.length ? 'critical' : 'success')" v-text="alertsView.activeAlerts.length ? alertsView.activeAlerts.length + ' FIRING' : 'ALL CLEAR'">
+              </span>
+            </header>
+            <p v-if="!alertsView.activeAlerts.length" style="margin:0;color:var(--pico-muted-color);">
+              No active firing alerts across monitored targets.
+            </p>
+            <div v-else style="overflow-x:auto;">
+              <table class="striped" style="margin:0;">
+                <thead>
+                  <tr>
+                    <th>
+                      Target
+                    </th>
+                    <th>
+                      Rule
+                    </th>
+                    <th>
+                      Severity
+                    </th>
+                    <th>
+                      Since
+                    </th>
+                    <th>
+                      Live Summary
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="a in alertsView.activeAlerts" :key="a.rule_id+'-'+a.target">
+                    <td>
+                      <strong v-text="a.target">
+                      </strong>
+                    </td>
+                    <td>
+                      Rule #
+                      <span v-text="a.rule_id">
+                      </span>
+                    </td>
+                    <td>
+                      <span class="badge badge-critical">
+                        CRITICAL
+                      </span>
+                    </td>
+                    <td v-text="alertsView.formatTime(a.firing_since)">
+                    </td>
+                    <td v-text="a.last_summary || '--'">
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+          <div class="alert-tabs">
+            <button v-for="tb in [{k:'rules',n:'Configured Rules ('+alertsView.rules.length+')'},{k:'history',n:'Alert History ('+alertsView.historyEvents.length+')'}]" :key="tb.k" class="alert-tab-btn" :class="{active: alertsView.activeTab===tb.k}" @click="alertsView.activeTab=tb.k" v-text="tb.n">
+            </button>
+          </div>
+          <article v-if="alertsView.activeTab === 'rules'">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;gap:1rem;">
+              <input type="search" v-model="alertsView.ruleSearch" placeholder="Filter rules..." style="margin:0;max-width:320px;"/>
+              <small style="color:var(--pico-muted-color);">
+                Showing {{ alertsView.filteredRules().length }} of {{ alertsView.rules.length }} rules
+              </small>
+            </div>
+            <div style="overflow-x:auto;">
+              <table class="striped">
+                <thead>
+                  <tr>
+                    <th style="width:40px;">
+                      On
+                    </th>
+                    <th>
+                      Rule
+                    </th>
+                    <th>
+                      Kind
+                    </th>
+                    <th>
+                      Target
+                    </th>
+                    <th>
+                      Severity
+                    </th>
+                    <th>
+                      Condition
+                    </th>
+                    <th>
+                      For
+                    </th>
+                    <th>
+                      Cooldown
+                    </th>
+                    <th>
+                      Channels
+                    </th>
+                    <th>
+                      State
+                    </th>
+                    <th style="text-align:right;">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!alertsView.filteredRules().length">
+                    <td colspan="11" style="text-align:center;color:var(--pico-muted-color);padding:2rem;">
+                      No alert rules found.
+                    </td>
+                  </tr>
+                  <tr v-for="r in alertsView.filteredRules()" :key="r.id">
+                    <td>
+                      <input type="checkbox" :checked="r.enabled" @change="alertsView.toggleRule(r)" style="margin:0;"/>
+                    </td>
+                    <td>
+                      <strong v-text="r.name">
+                      </strong>
+                    </td>
+                    <td>
+                      <span class="badge" style="text-transform:uppercase;" v-text="r.kind">
+                      </span>
+                    </td>
+                    <td>
+                      <code v-text="r.target">
+                      </code>
+                    </td>
+                    <td>
+                      <span :class="'badge badge-' + r.severity" v-text="r.severity">
+                      </span>
+                    </td>
+                    <td>
+                      <code style="font-size:0.8rem;" v-text="alertsView.formatCondition(r)">
+                      </code>
+                    </td>
+                    <td v-text="alertsView.formatDuration(r.for_sec)">
+                    </td>
+                    <td v-text="alertsView.formatDuration(r.cooldown_sec)">
+                    </td>
+                    <td>
+                      <small v-text="(r.channels || []).join(', ')">
+                      </small>
+                    </td>
+                    <td>
+                      <span :class="'status-pill status-' + (r.live_state || 'ok')">
+                        <span class="status-dot">
+                        </span>
+                        <span v-text="(r.live_state || 'ok').toUpperCase()">
+                        </span>
+                      </span>
+                    </td>
+                    <td style="text-align:right;white-space:nowrap;">
+                      <button class="outline secondary" style="padding:0.2rem 0.5rem;font-size:0.75rem;margin-right:0.25rem;margin-bottom:0;" @click="alertsView.openEditModal(r)">
+                        Edit
+                      </button>
+                      <button class="outline secondary" style="padding:0.2rem 0.5rem;font-size:0.75rem;margin-bottom:0;color:#dc2626;border-color:#dc2626;" @click="alertsView.deleteRule(r)">
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+          <article v-if="alertsView.activeTab === 'history'">
+            <div style="display:flex;gap:1rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap;">
+              <label style="margin:0;display:flex;align-items:center;gap:0.4rem;">
+                <small>
+                  Severity:
+                </small>
+                <select v-model="alertsView.historySeverity" @change="alertsView.fetchHistory(false)" style="margin:0;width:auto;">
+                  <option value="">
+                    All
+                  </option>
+                  <option v-for="s in ['critical','warning','info']" :key="s" :value="s">
+                    {{s}}
+                  </option>
+                </select>
+              </label>
+              <label style="margin:0;display:flex;align-items:center;gap:0.4rem;">
+                <small>
+                  State:
+                </small>
+                <select v-model="alertsView.historyState" @change="alertsView.fetchHistory(false)" style="margin:0;width:auto;">
+                  <option value="">
+                    All
+                  </option>
+                  <option value="firing">
+                    Firing
+                  </option>
+                  <option value="resolved">
+                    Resolved
+                  </option>
+                </select>
+              </label>
+              <button class="outline secondary" style="margin:0;padding:0.25rem 0.6rem;font-size:0.8rem;" @click="alertsView.fetchHistory(false)">
+                Refresh
+              </button>
+            </div>
+            <div style="overflow-x:auto;">
+              <table class="striped">
+                <thead>
+                  <tr>
+                    <th>
+                      Started (UTC)
+                    </th>
+                    <th>
+                      Rule
+                    </th>
+                    <th>
+                      Target
+                    </th>
+                    <th>
+                      Severity
+                    </th>
+                    <th>
+                      State
+                    </th>
+                    <th>
+                      Summary
+                    </th>
+                    <th>
+                      Resolved
+                    </th>
+                    <th>
+                      Delivery
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!alertsView.historyEvents.length">
+                    <td colspan="8" style="text-align:center;color:var(--pico-muted-color);padding:2rem;">
+                      No alert events recorded yet.
+                    </td>
+                  </tr>
+                  <tr v-for="ev in alertsView.historyEvents" :key="ev.id">
+                    <td v-text="alertsView.formatTime(ev.started)">
+                    </td>
+                    <td>
+                      <strong v-text="ev.rule_name">
+                      </strong>
+                    </td>
+                    <td>
+                      <code v-text="ev.target">
+                      </code>
+                    </td>
+                    <td>
+                      <span :class="'badge badge-' + ev.severity" v-text="ev.severity">
+                      </span>
+                    </td>
+                    <td>
+                      <span :class="'status-pill status-' + (ev.state === 'firing' ? 'firing' : 'ok')">
+                        <span class="status-dot">
+                        </span>
+                        <span v-text="(ev.state || '').toUpperCase()">
+                        </span>
+                      </span>
+                    </td>
+                    <td v-text="ev.summary">
+                    </td>
+                    <td v-text="ev.resolved > 0 ? alertsView.formatTime(ev.resolved) : '--'">
+                    </td>
+                    <td>
+                      <small v-text="ev.notify_status || '--'">
+                      </small>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="alertsView.historyHasMore" style="text-align:center;margin-top:1rem;">
+              <button class="outline" :aria-busy="alertsView.historyLoading" @click="alertsView.fetchHistory(true)">
+                Load More
+              </button>
+            </div>
+          </article>
+          <dialog :open="alertsView.modalOpen" class="rule-builder-dialog">
+            <article style="max-width:720px;width:100%;">
+              <header>
+                <h3 style="margin:0;" v-text="alertsView.isEditing ? 'Edit Alert Rule' : 'Create Alert Rule'">
+                </h3>
+              </header>
+              <form @submit.prevent="alertsView.saveRule()">
+                <div class="grid">
+                  <label>
+                    Rule Name *
+                    <input type="text" v-model="alertsView.ruleForm.name" placeholder="e.g. High API Host CPU" required/>
+                  </label>
+                  <label>
+                    Severity *
+                    <select v-model="alertsView.ruleForm.severity">
+                      <option v-for="s in ['critical','warning','info']" :key="s" :value="s">
+                        {{s}}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+                <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+                  <button v-for="k in ['metric','log','container']" :key="k" type="button" class="outline" :class="{active: alertsView.ruleForm.kind === k}" style="flex:1;" @click="alertsView.ruleForm.kind = k" v-text="k.toUpperCase()">
+                  </button>
+                </div>
+                <label>
+                  Target Entity *
+                  <input type="text" v-model="alertsView.ruleForm.target" placeholder="host, disk:/, api-*, *" required/>
+                  <small style="color:var(--pico-muted-color);">
+                    Use
+                    <code>
+                      host
+                    </code>
+                    ,
+                    <code>
+                      disk:/
+                    </code>
+                    , container name or wildcard (
+                    <code>
+                      *
+                    </code>
+                    ,
+                    <code>
+                      api-*
+                    </code>
+                    )
+                  </small>
+                </label>
+                <fieldset v-if="alertsView.ruleForm.kind === 'metric'" style="margin-top:1rem;">
+                  <legend>
+                    <strong>
+                      Metric Condition
+                    </strong>
+                  </legend>
+                  <div class="grid">
+                    <label>
+                      Metric
+                      <select v-model="alertsView.ruleForm.metricName">
+                        <option v-for="m in ['host_cpu_pct','host_mem_used_pct','host_disk_used_pct','container_cpu_pct','container_mem_pct']" :key="m" :value="m">
+                          {{m}}
+                        </option>
+                      </select>
+                    </label>
+                    <label>
+                      Op
+                      <select v-model="alertsView.ruleForm.metricOp">
+                        <option v-for="op in ['>','>=','<','<=','==']" :key="op" :value="op">
+                          {{op}}
+                        </option>
+                      </select>
+                    </label>
+                    <label>
+                      Threshold
+                      <input type="number" step="0.1" v-model="alertsView.ruleForm.metricThreshold" required/>
+                    </label>
+                  </div>
+                </fieldset>
+                <fieldset v-if="alertsView.ruleForm.kind === 'log'" style="margin-top:1rem;">
+                  <legend>
+                    <strong>
+                      Log Condition
+                    </strong>
+                  </legend>
+                  <label>
+                    Pattern *
+                    <input type="text" v-model="alertsView.ruleForm.logPattern" placeholder="e.g. panic: runtime error" required/>
+                  </label>
+                  <div class="grid">
+                    <label>
+                      <input type="checkbox" v-model="alertsView.ruleForm.logIsRegex"/>
+                      Regex
+                    </label>
+                    <label>
+                      Min Level
+                      <select v-model.number="alertsView.ruleForm.logMinLevel">
+                        <option :value="0">
+                          Any
+                        </option>
+                        <option :value="4">
+                          WARN
+                        </option>
+                        <option :value="5">
+                          ERROR
+                        </option>
+                      </select>
+                    </label>
+                    <label>
+                      Hits
+                      <input type="number" v-model.number="alertsView.ruleForm.logThreshold" min="1" max="1000"/>
+                    </label>
+                    <label>
+                      Window (s)
+                      <input type="number" v-model.number="alertsView.ruleForm.logWindowSec" min="10" max="3600"/>
+                    </label>
+                  </div>
+                </fieldset>
+                <fieldset v-if="alertsView.ruleForm.kind === 'container'" style="margin-top:1rem;">
+                  <legend>
+                    <strong>
+                      Container Events
+                    </strong>
+                  </legend>
+                  <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+                    <label v-for="e in ['oom','die','restart','stop','down']" :key="e">
+                      <input type="checkbox" v-model="alertsView.ruleForm.containerEvents[e]"/>
+                      {{e.toUpperCase()}}
+                    </label>
+                  </div>
+                  <div class="grid">
+                    <label>
+                      Hits
+                      <input type="number" v-model.number="alertsView.ruleForm.containerThreshold" min="1" max="100"/>
+                    </label>
+                    <label>
+                      Window (s)
+                      <input type="number" v-model.number="alertsView.ruleForm.containerWindowSec" min="0" max="3600"/>
+                    </label>
+                  </div>
+                </fieldset>
+                <div class="grid" style="margin-top:1rem;">
+                  <label>
+                    Sustained For (s)
+                    <input type="number" v-model.number="alertsView.ruleForm.for_sec" min="0" max="86400"/>
+                  </label>
+                  <label>
+                    Cooldown (s)
+                    <input type="number" v-model.number="alertsView.ruleForm.cooldown_sec" min="0" max="86400"/>
+                  </label>
+                </div>
+                <label style="margin-top:0.5rem;">
+                  Notification Channels *
+                </label>
+                <div style="display:flex;gap:1.5rem;margin-bottom:1rem;">
+                  <label v-for="ch in ['email','discord']" :key="ch">
+                    <input type="checkbox" v-model="alertsView.ruleForm.channels[ch]"/>
+                    {{ch.toUpperCase()}}
+                  </label>
+                </div>
+                <div>
+                  <button type="button" class="outline secondary" :aria-busy="alertsView.previewLoading" @click="alertsView.runPreview()" style="margin:0;">
+                    Dry-Run Preview
+                  </button>
+                </div>
+                <div v-if="alertsView.previewResult" class="preview-box" :class="alertsView.previewResult?.would_fire_now ? 'preview-firing' : 'preview-clear'">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                    <strong>
+                      Preview Result:
+                    </strong>
+                    <span :class="'badge ' + (alertsView.previewResult?.would_fire_now ? 'badge-critical' : 'badge-success')" v-text="alertsView.previewResult?.would_fire_now ? 'WOULD FIRE NOW' : 'CONDITION SATISFIED / OK'">
+                    </span>
+                  </div>
+                  <ul v-if="alertsView.previewResult?.matched_targets && alertsView.previewResult.matched_targets.length" style="margin-bottom:0.5rem;padding-left:1.25rem;">
+                    <li v-for="m in (alertsView.previewResult?.matched_targets || [])" :key="m.target" style="font-size:0.85rem;">
+                      <code v-text="m.target">
+                      </code>
+                      :
+                      <span v-text="m.summary">
+                      </span>
+                    </li>
+                  </ul>
+                  <div v-if="alertsView.previewResult?.sample_lines && alertsView.previewResult.sample_lines.length">
+                    <small>
+                      <strong>
+                        Recent Matching Log Lines ({{ alertsView.previewResult?.recent_matches_24h || 0 }} hits):
+                      </strong>
+                    </small>
+                    <pre style="margin:0;font-size:0.75rem;padding:0.4rem;background:var(--pico-code-background-color);border-radius:4px;max-height:100px;overflow-y:auto;">
+                      <code v-for="line in (alertsView.previewResult?.sample_lines || [])" style="display:block;" v-text="line">
+                      </code>
+                    </pre>
+                  </div>
+                </div>
+                <footer style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1.5rem;">
+                  <button type="button" class="outline secondary" @click="alertsView.closeModal()" style="margin:0;">
+                    Cancel
+                  </button>
+                  <button type="submit" :aria-busy="alertsView.modalLoading" style="margin:0;">
+                    {{ alertsView.isEditing ? 'Save Changes' : 'Create Rule' }}
+                  </button>
+                </footer>
+              </form>
+            </article>
+          </dialog>
+        </section>
+        <section v-if="store.route === 'settings'" @vue:mounted="settingsView.mounted()">
+          <h2>
+            System Settings & Storage Health
+          </h2>
+          <div class="grid">
+            <article v-if="store.systemHealth">
+              <header>
+                <h4>
+                  System Health
+                </h4>
+              </header>
+              <p>
+                <strong>
+                  Status:
+                </strong>
+                <span class="badge badge-success" v-text="store.systemHealth.status">
+                </span>
+              </p>
+              <p>
+                <strong>
+                  Uptime:
+                </strong>
+                <span v-text="store.systemHealth.uptime_seconds">
+                </span>
+                seconds
+              </p>
+              <p>
+                <strong>
+                  Go Version:
+                </strong>
+                <code v-text="store.systemHealth.go_version">
+                </code>
+              </p>
+              <p>
+                <strong>
+                  Tarsier Version:
+                </strong>
+                <span v-text="store.systemHealth.version">
+                </span>
+              </p>
+              <div v-if="store.systemHealth.memory">
+                <p>
+                  <strong>
+                    Memory Alloc:
+                  </strong>
+                  <span v-text="(store.systemHealth.memory.alloc_bytes / 1048576).toFixed(2)">
+                  </span>
+                  MB
+                </p>
+                <p>
+                  <strong>
+                    GC Cycles:
+                  </strong>
+                  <span v-text="store.systemHealth.memory.num_gc">
+                  </span>
+                </p>
+              </div>
+            </article>
+            <article v-if="store.systemConfig">
+              <header>
+                <h4>
+                  Configuration Summary
+                </h4>
+              </header>
+              <p>
+                <strong>
+                  Server Listen:
+                </strong>
+                <code v-text="store.systemConfig?.server?.listen">
+                </code>
+              </p>
+              <p>
+                <strong>
+                  Timezone:
+                </strong>
+                <span v-text="store.systemConfig?.server?.timezone">
+                </span>
+              </p>
+              <p>
+                <strong>
+                  Storage Path:
+                </strong>
+                <code v-text="store.systemConfig?.storage?.path">
+                </code>
+              </p>
+              <p>
+                <strong>
+                  Log Cap / Metric Cap:
+                </strong>
+                <span v-text="(store.systemConfig?.storage?.logs_max_size || '--') + ' / ' + (store.systemConfig?.storage?.metrics_max_size || '--')">
+                </span>
+              </p>
+              <p>
+                <strong>
+                  Retention:
+                </strong>
+                <span v-text="'Logs: ' + (store.systemConfig?.retention?.logs || '--') + ', Raw: ' + (store.systemConfig?.retention?.metrics_raw || '--')">
+                </span>
+              </p>
+            </article>
+          </div>
+          <article v-if="store.systemHealth && store.systemHealth.storage" style="margin-top: 1.5rem;">
+            <header style="display:flex; justify-content:space-between; align-items:center;">
+              <h4 style="margin-bottom:0;">
+                Storage Consumption & Limits
+              </h4>
+              <span class="badge badge-info" v-text="store.systemHealth.storage.logs_chunk_files + ' Log Chunks (.chunk)'">
+              </span>
+            </header>
+            <div class="grid">
+              <div>
+                <div style="display:flex; justify-content:space-between; font-size:0.85rem;">
+                  <strong>
+                    Logs Directory Size
+                  </strong>
+                  <span>
+                    {{ settingsView.formatBytes(store.systemHealth.storage.logs_dir_bytes) }} / {{ settingsView.formatBytes(store.systemHealth.storage.logs_max_bytes) }} ({{ store.systemHealth.storage.logs_max_bytes > 0 ? Math.min(100, Math.round((store.systemHealth.storage.logs_dir_bytes / store.systemHealth.storage.logs_max_bytes) * 100)) : 0 }}%)
+                  </span>
+                </div>
+                <div class="storage-bar">
+                  <div class="storage-bar-fill" :class="store.systemHealth.storage.logs_max_bytes > 0 && (store.systemHealth.storage.logs_dir_bytes / store.systemHealth.storage.logs_max_bytes) > 0.85 ? 'storage-bar-danger' : 'storage-bar-normal'" :style="'width: ' + (store.systemHealth.storage.logs_max_bytes > 0 ? Math.min(100, Math.round((store.systemHealth.storage.logs_dir_bytes / store.systemHealth.storage.logs_max_bytes) * 100)) : 0) + '%;'">
+                  </div>
+                </div>
+                <small style="color:var(--pico-muted-color);">
+                  Storage path:
+                  <code>
+                    {{ store.systemConfig?.storage?.path ? store.systemConfig.storage.path + '/logs' : '/data/logs' }}
+                  </code>
+                </small>
+              </div>
+              <div>
+                <strong>
+                  Database Store Sizes
+                </strong>
+                <table class="striped" style="margin-top:0.35rem; font-size:0.85rem;">
+                  <thead>
+                    <tr>
+                      <th>
+                        Database
+                      </th>
+                      <th>
+                        Total
+                      </th>
+                      <th>
+                        WAL
+                      </th>
+                      <th>
+                        Freelist
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <code>
+                          metrics.db
+                        </code>
+                      </td>
+                      <td v-text="settingsView.formatBytes(store.systemHealth.storage.metrics_db.total_bytes)">
+                      </td>
+                      <td v-text="settingsView.formatBytes(store.systemHealth.storage.metrics_db.wal_bytes)">
+                      </td>
+                      <td v-text="settingsView.formatBytes(store.systemHealth.storage.metrics_db.freelist_bytes)">
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <code>
+                          config.db
+                        </code>
+                      </td>
+                      <td v-text="settingsView.formatBytes(store.systemHealth.storage.config_db.total_bytes)">
+                      </td>
+                      <td v-text="settingsView.formatBytes(store.systemHealth.storage.config_db.wal_bytes)">
+                      </td>
+                      <td v-text="settingsView.formatBytes(store.systemHealth.storage.config_db.freelist_bytes)">
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div v-if="store.systemConfig && store.systemConfig.retention" style="margin-top: 1rem;">
+              <strong>
+                Configured Retention Windows
+              </strong>
+              <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.35rem;">
+                <span class="badge badge-muted">
+                  Logs:
+                  <strong v-text="store.systemConfig?.retention?.logs">
+                  </strong>
+                </span>
+                <span class="badge badge-muted">
+                  Metrics Raw:
+                  <strong v-text="store.systemConfig?.retention?.metrics_raw">
+                  </strong>
+                </span>
+                <span class="badge badge-muted">
+                  Metrics 1m:
+                  <strong v-text="store.systemConfig?.retention?.metrics_1m">
+                  </strong>
+                </span>
+                <span class="badge badge-muted">
+                  Metrics 5m:
+                  <strong v-text="store.systemConfig?.retention?.metrics_5m">
+                  </strong>
+                </span>
+                <span class="badge badge-muted">
+                  Metrics 1d:
+                  <strong v-text="store.systemConfig?.retention?.metrics_1d">
+                  </strong>
+                </span>
+              </div>
+            </div>
+          </article>
+          <article style="margin-top: 1.5rem;">
+            <header>
+              <h4 style="margin-bottom:0;">
+                Retention & Maintenance Actions
+              </h4>
+            </header>
+            <div class="settings-actions">
+              <button class="outline" :aria-busy="settingsView.dryRunLoading" @click="settingsView.triggerDryRun()" style="margin:0;">
+                Dry-Run Preview
+              </button>
+              <button class="outline" style="margin:0; color:#dc2626; border-color:#dc2626;" @click="settingsView.openConfirmRun()">
+                Trigger Cleanup Now
+              </button>
+              <button class="outline secondary" :aria-busy="settingsView.reloadLoading" @click="settingsView.reloadConfig()" style="margin:0;">
+                Reload Configuration
+              </button>
+              <button class="outline secondary" @click="settingsView.downloadTemplate('markdown')" style="margin:0;">
+                Download Markdown Template
+              </button>
+              <button class="outline secondary" @click="settingsView.downloadTemplate('html')" style="margin:0;">
+                Download HTML Template
+              </button>
+              <button class="outline secondary" @click="settingsView.openTemplateModal()" style="margin:0;">
+                Test Custom Template
+              </button>
+            </div>
+          </article>
+          <article style="margin-top: 1.5rem;">
+            <header style="display:flex; justify-content:space-between; align-items:center;">
+              <h4 style="margin-bottom:0;">
+                Cleanup Execution History
+              </h4>
+              <button class="outline secondary" style="padding:0.25rem 0.6rem; font-size:0.8rem; margin:0;" @click="settingsView.fetchHistory()">
+                Refresh History
+              </button>
+            </header>
+            <div style="overflow-x:auto;">
+              <table class="striped" style="margin-bottom:0; font-size:0.85rem;">
+                <thead>
+                  <tr>
+                    <th>
+                      ID
+                    </th>
+                    <th>
+                      Trigger
+                    </th>
+                    <th>
+                      Mode
+                    </th>
+                    <th>
+                      Started At (UTC)
+                    </th>
+                    <th>
+                      Duration
+                    </th>
+                    <th>
+                      Reclaimed
+                    </th>
+                    <th>
+                      Purged Items
+                    </th>
+                    <th>
+                      Report Status
+                    </th>
+                    <th style="text-align:right;">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!settingsView.history.length">
+                    <td colspan="9" style="text-align:center; color:var(--pico-muted-color); padding:2rem;">
+                      No cleanup runs recorded yet.
+                    </td>
+                  </tr>
+                  <tr v-for="h in settingsView.history" :key="h.id">
+                    <td>
+                      #
+                      <span v-text="h.id">
+                      </span>
+                    </td>
+                    <td>
+                      <span :class="'status-pill status-' + h.trigger" v-text="h.trigger.toUpperCase()">
+                      </span>
+                    </td>
+                    <td>
+                      <span :class="'badge ' + (h.dry_run ? 'badge-warning' : 'badge-success')" v-text="h.dry_run ? 'DRY RUN' : 'PRUNED'">
+                      </span>
+                    </td>
+                    <td>
+                      <small v-text="h.started_at">
+                      </small>
+                    </td>
+                    <td>
+                      <span v-text="settingsView.formatDuration ? settingsView.formatDuration(h.duration_ms) : (h.duration_ms + ' ms')">
+                      </span>
+                    </td>
+                    <td>
+                      <strong v-text="settingsView.formatBytes(h.bytes_reclaimed)">
+                      </strong>
+                    </td>
+                    <td>
+                      <small v-text="h.logs_deleted + ' logs, ' + h.metrics_deleted + ' metrics, ' + h.events_deleted + ' events'">
+                      </small>
+                    </td>
+                    <td>
+                      <span :class="'badge ' + (h.report_status === 'sent' ? 'badge-success' : (h.report_status === 'failed' ? 'badge-danger' : 'badge-muted'))" v-text="h.report_status.toUpperCase()">
+                      </span>
+                    </td>
+                    <td style="text-align:right;">
+                      <button class="outline secondary btn-micro" @click="settingsView.viewReport(h.id)">
+                        View Report
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+          <dialog :open="settingsView.reportModalOpen" class="modal-wide">
+            <article>
+              <header>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <h4 style="margin-bottom:0;">
+                    Pre-Cleanup Report
+                    <span v-if="settingsView.selectedReport">
+                      #{{ settingsView.selectedReport?.id }} ({{ (settingsView.selectedReport?.trigger || '').toUpperCase() }})
+                    </span>
+                  </h4>
+                  <button class="toast-close" @click="settingsView.closeReportModal()" aria-label="Close dialog">
+                    &times;
+                  </button>
+                </div>
+              </header>
+              <div v-if="settingsView.reportLoading" style="text-align:center; padding:2rem;" aria-busy="true">
+                Loading stored report...
+              </div>
+              <div v-else-if="settingsView.selectedReport">
+                <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; font-size:0.85rem;">
+                  <span>
+                    <strong>
+                      Started:
+                    </strong>
+                    {{ settingsView.selectedReport?.started_at }}
+                  </span>
+                  <span>
+                    <strong>
+                      Format:
+                    </strong>
+                    <code v-text="settingsView.selectedReport?.report_format">
+                    </code>
+                  </span>
+                  <span>
+                    <strong>
+                      Mode:
+                    </strong>
+                    <span :class="'badge ' + (settingsView.selectedReport?.dry_run ? 'badge-warning' : 'badge-success')" v-text="settingsView.selectedReport?.dry_run ? 'DRY RUN' : 'ACTIVE PRUNE'">
+                    </span>
+                  </span>
+                  <span>
+                    <strong>
+                      Delivery:
+                    </strong>
+                    <span class="badge badge-info" v-text="settingsView.selectedReport?.report_status">
+                    </span>
+                  </span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                  <small style="color:var(--pico-muted-color);">
+                    Viewing formatted report
+                  </small>
+                  <button v-if="settingsView.toggleReportViewMode" class="outline secondary btn-micro" style="margin:0;" @click="settingsView.toggleReportViewMode()">
+                    {{ settingsView.reportViewMode === 'raw' ? 'View Rendered' : 'View Raw Source' }}
+                  </button>
+                </div>
+                <div v-if="settingsView.reportViewMode === 'raw'">
+                  <pre class="modal-code-viewer">
+                    <code v-text="settingsView.selectedReport?.report_body">
+                    </code>
+                  </pre>
+                </div>
+                <div v-else-if="settingsView.getReportSrcdoc">
+                  <iframe sandbox="" :srcdoc="settingsView.getReportSrcdoc()" style="width:100%; height:450px; border:1px solid var(--pico-muted-border-color); border-radius:4px; background:#ffffff;">
+                  </iframe>
+                </div>
+                <div v-else-if="settingsView.selectedReport?.report_format === 'html'">
+                  <iframe sandbox="" :srcdoc="settingsView.selectedReport?.report_body" style="width:100%; height:450px; border:1px solid var(--pico-muted-border-color); border-radius:4px;">
+                  </iframe>
+                </div>
+                <div v-else>
+                  <pre class="modal-code-viewer">
+                    <code v-text="settingsView.selectedReport?.report_body">
+                    </code>
+                  </pre>
+                </div>
+              </div>
+              <footer>
+                <div style="display:flex; justify-content:flex-end;">
+                  <button class="secondary" @click="settingsView.closeReportModal()">
+                    Close
+                  </button>
+                </div>
+              </footer>
+            </article>
+          </dialog>
+          <dialog :open="settingsView.confirmRunModalOpen">
+            <article style="max-width:500px; margin:0 auto;">
+              <header>
+                <h4 style="margin-bottom:0; color:#dc2626;">
+                  ⚠️ Confirm Manual Cleanup
+                </h4>
+              </header>
+              <p style="margin-top:1rem;">
+                Are you sure you want to trigger a full retention cleanup cycle? This will permanently delete expired log chunks, prune metric tables, and run database maintenance compaction.
+              </p>
+              <footer>
+                <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+                  <button class="outline secondary" @click="settingsView.closeConfirmRun()">
+                    Cancel
+                  </button>
+                  <button style="color:#ffffff; background-color:#dc2626; border-color:#dc2626;" :aria-busy="settingsView.manualRunLoading" @click="settingsView.triggerCleanup()">
+                    Execute Cleanup
+                  </button>
+                </div>
+              </footer>
+            </article>
+          </dialog>
+          <dialog :open="settingsView.templateModalOpen" class="modal-wide">
+            <article>
+              <header>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <h4 style="margin-bottom:0;">
+                    Test Custom Pre-Cleanup Template
+                  </h4>
+                  <button class="toast-close" @click="settingsView.closeTemplateModal()" aria-label="Close dialog">
+                    &times;
+                  </button>
+                </div>
+              </header>
+              <form @submit.prevent="settingsView.previewTemplate()">
+                <div class="grid">
+                  <label>
+                    Template Format
+                    <select v-model="settingsView.templateFormat" style="margin-bottom:0.5rem;">
+                      <option value="markdown">
+                        Markdown (text/template)
+                      </option>
+                      <option value="html">
+                        HTML (html/template)
+                      </option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  Template Source
+                  <textarea v-model="settingsView.templateInput" rows="8" placeholder="Paste your Go template here (uses .TotalLogsPurged, .Sources, .TopErrorPatterns, formatBytes...)" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.85rem;" required>
+                  </textarea>
+                </label>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.5rem;">
+                  <button type="submit" class="outline" :aria-busy="settingsView.templateLoading" style="margin:0;">
+                    Render Live Preview
+                  </button>
+                  <span v-if="settingsView.templateError" class="badge badge-danger" v-text="settingsView.templateError">
+                  </span>
+                </div>
+              </form>
+              <div v-if="settingsView.templatePreview" style="margin-top:1.5rem;">
+                <header style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                  <h5>
+                    Rendered Output Preview
+                  </h5>
+                  <button v-if="settingsView.toggleTemplatePreviewMode" type="button" class="outline secondary btn-micro" style="margin:0;" @click="settingsView.toggleTemplatePreviewMode()">
+                    {{ settingsView.templatePreviewMode === 'raw' ? 'View Rendered' : 'View Raw Source' }}
+                  </button>
+                </header>
+                <div v-if="settingsView.templatePreviewMode === 'raw'">
+                  <pre class="modal-code-viewer">
+                    <code v-text="settingsView.templatePreview">
+                    </code>
+                  </pre>
+                </div>
+                <div v-else-if="settingsView.getTemplatePreviewSrcdoc">
+                  <iframe sandbox="" :srcdoc="settingsView.getTemplatePreviewSrcdoc()" style="width:100%; height:350px; border:1px solid var(--pico-muted-border-color); border-radius:4px; background:#ffffff;">
+                  </iframe>
+                </div>
+                <div v-else-if="settingsView.templateFormat === 'html'">
+                  <iframe sandbox="" :srcdoc="settingsView.templatePreview" style="width:100%; height:350px; border:1px solid var(--pico-muted-border-color); border-radius:4px;">
+                  </iframe>
+                </div>
+                <div v-else>
+                  <pre class="modal-code-viewer">
+                    <code v-text="settingsView.templatePreview">
+                    </code>
+                  </pre>
+                </div>
+              </div>
+              <footer style="margin-top:1.5rem;">
+                <div style="display:flex; justify-content:flex-end;">
+                  <button class="secondary" @click="settingsView.closeTemplateModal()">
+                    Close
+                  </button>
+                </div>
+              </footer>
+            </article>
+          </dialog>
+        </section>
+      </main>
+    </div>
+    <script src="/static/js/app.js?v=2">
+    </script>
+  </body>
+</html>

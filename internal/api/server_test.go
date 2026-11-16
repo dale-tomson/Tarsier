@@ -519,6 +519,51 @@ func TestNoExternalCDNLinks(t *testing.T) {
 	}
 }
 
+func TestNavbarUserDropdownStructure(t *testing.T) {
+	indexHTML, err := web.Assets.ReadFile("index.html")
+	if err != nil {
+		t.Fatalf("failed to read index.html: %v", err)
+	}
+	content := string(indexHTML)
+
+	expectedElements := []string{
+		`<nav class="app-nav">`,
+		`class="brand-title"`,
+		`class="nav-links"`,
+		`v-model="store.timeRange"`,
+		`v-model="store.refreshInterval"`,
+		`class="dropdown user-dropdown"`,
+		`store.truncatedUser`,
+		`Logged In User`,
+		`store.cycleTheme()`,
+		`store.logout()`,
+	}
+
+	for _, elem := range expectedElements {
+		if !strings.Contains(content, elem) {
+			t.Errorf("missing expected navbar element %q in index.html", elem)
+		}
+	}
+
+	appJS, err := web.Assets.ReadFile("static/js/app.js")
+	if err != nil {
+		t.Fatalf("failed to read app.js: %v", err)
+	}
+	jsContent := string(appJS)
+
+	expectedJS := []string{
+		"truncatedUser",
+		"closeDropdown",
+		"slice(0, 7) + '...'",
+	}
+
+	for _, elem := range expectedJS {
+		if !strings.Contains(jsContent, elem) {
+			t.Errorf("missing expected helper %q in app.js", elem)
+		}
+	}
+}
+
 func TestSPAFallback(t *testing.T) {
 	_, ts, cleanup := setupTestServer(t)
 	defer cleanup()
