@@ -154,6 +154,20 @@ func TestLogsAPI_SourcesAndUnfilteredTail(t *testing.T) {
 	if logsRes.ScannedBlocks != 0 {
 		t.Errorf("expected scanned_blocks == 0, got %d", logsRes.ScannedBlocks)
 	}
+
+	// 4b. Test resolution with leading slash and bare name
+	for _, qSource := range []string{"container:/api", "api"} {
+		reqSlash, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/logs?source="+qSource, nil)
+		reqSlash.AddCookie(cookie)
+		respSlash, sErr := client.Do(reqSlash)
+		if sErr != nil {
+			t.Fatalf("GET /api/v1/logs?source=%s failed: %v", qSource, sErr)
+		}
+		if respSlash.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 OK for source=%s, got %d", qSource, respSlash.StatusCode)
+		}
+		respSlash.Body.Close()
+	}
 	if len(logsRes.Entries) != 15 {
 		t.Fatalf("expected 15 entries, got %d", len(logsRes.Entries))
 	}
@@ -385,7 +399,10 @@ func TestLogsAPI_ContextEndpoint(t *testing.T) {
 	// 1. Get an entry ID from /api/v1/logs
 	reqLogs, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/logs?source=1&limit=10", nil)
 	reqLogs.AddCookie(cookie)
-	respLogs, _ := client.Do(reqLogs)
+	respLogs, err := client.Do(reqLogs)
+	if err != nil {
+		t.Fatalf("GET /api/v1/logs failed: %v", err)
+	}
 
 	var logsRes LogsQueryResponse
 	_ = json.NewDecoder(respLogs.Body).Decode(&logsRes)
@@ -424,5 +441,87 @@ func TestLogsAPI_ContextEndpoint(t *testing.T) {
 	}
 	if ctxRes.Entries[ctxRes.TargetIndex].ID != targetID {
 		t.Errorf("expected target entry ID %s, got %s", targetID, ctxRes.Entries[ctxRes.TargetIndex].ID)
+	}
+}
+
+func TestLogsAPI_LatestFirstOrdering(t *testing.T) {
+	ctx := context.Background()
+	baseTime := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+
+	tmpDir := t.TempDir()
+	tailCache := logs.NewTailCache(10, 300)
+
+	engine, err := logs.NewLogQueryEngine(logs.LogQueryEngineConfig{
+		BaseDir:   tmpDir,
+		TailCache: tailCache,
+	})
+	if err != nil {
+		t.Fatalf("NewLogQueryEngine failed: %v", err)
+	}
+
+	srv, store, cookie := setupLogsTestServer(t, engine, tailCache)
+	defer store.Close()
+
+	var sID int64
+	err = store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		res, err := tx.ExecContext(txCtx, `
+			INSERT INTO source (kind, name, host_id, first_seen, last_seen)
+			VALUES ('container', 'order-test', 1, 1700000000, 1700001000);
+		`)
+		if err != nil {
+			return err
+		}
+		sID, _ = res.LastInsertId()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed source failed: %v", err)
+	}
+
+	// Push entries with intentionally non-sequential timestamps
+	// Timestamps in seconds offset: +10, +50, +30, +20, +40
+	offsets := []int{10, 50, 30, 20, 40}
+	for i, off := range offsets {
+		tailCache.Push(model.LogEntry{
+			Timestamp:       baseTime.Add(time.Duration(off) * time.Second),
+			TimestampSource: model.TimestampSourceLine,
+			SourceID:        fmt.Sprintf("%d", sID),
+			Level:           model.LevelInfo,
+			LevelSource:     model.LevelSourceStructured,
+			Stream:          model.StreamStdout,
+			Message:         []byte(fmt.Sprintf("msg offset %d", off)),
+		})
+		_ = i
+	}
+
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+
+	client := ts.Client()
+	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/logs?source=%d", ts.URL, sID), nil)
+	req.AddCookie(cookie)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/v1/logs failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var res LogsQueryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+
+	if len(res.Entries) != 5 {
+		t.Fatalf("expected 5 entries, got %d", len(res.Entries))
+	}
+
+	// Verify strictly descending timestamps (latest first: 50, 40, 30, 20, 10)
+	expectedOffsets := []int{50, 40, 30, 20, 10}
+	for idx, expOff := range expectedOffsets {
+		expLine := fmt.Sprintf("msg offset %d", expOff)
+		if res.Entries[idx].Line != expLine {
+			t.Errorf("entry %d: expected %q, got %q", idx, expLine, res.Entries[idx].Line)
+		}
 	}
 }

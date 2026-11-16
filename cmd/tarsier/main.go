@@ -85,12 +85,14 @@ func main() {
 		log.Fatalf("Fatal: %v", err)
 	}
 
-	dockerConnectedFunc := bootstrapCollectors(ctx, cfg, store, ingestor, alerting.containerEvaluator)
-
-	tailCache, logEngine, err := bootstrapLogEngine(cfg)
+	logsSubsystem, closeLogs, err := bootstrapLogs(ctx, cfg, store, alerting.logEvaluator)
 	if err != nil {
 		log.Fatalf("Fatal: %v", err)
 	}
+	defer closeLogs()
+
+	collectors := bootstrapCollectors(ctx, cfg, store, ingestor, alerting.containerEvaluator, logsSubsystem.ingestor)
+	defer collectors.stop()
 
 	cleanupSubsystem, stopCleanup, err := bootstrapCleanup(ctx, cfg, store)
 	if err != nil {
@@ -104,9 +106,9 @@ func main() {
 		store:               store,
 		ingestor:            ingestor,
 		rollup:              rollup,
-		dockerConnectedFunc: dockerConnectedFunc,
-		tailCache:           tailCache,
-		logEngine:           logEngine,
+		dockerConnectedFunc: collectors.dockerConnectedFunc,
+		tailCache:           logsSubsystem.tailCache,
+		logEngine:           logsSubsystem.logEngine,
 		auth:                authenticator,
 		sessions:            sessions,
 		limiter:             limiter,

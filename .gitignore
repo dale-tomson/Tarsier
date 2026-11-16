@@ -10,3 +10,10 @@ bin/
 .env
 .env.local
 
+# Persistent local data
+data/
+*.db
+*.db-shm
+*.db-wal
+
+

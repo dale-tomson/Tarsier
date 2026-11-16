@@ -54,6 +54,19 @@ segments.push({ text: line.substring(lastIndex), match: false });
 }
 return segments.length > 0 ? segments : [{ text: line, match: false }];
 }
+function sortLatestFirst(entries) {
+if (!Array.isArray(entries)) return [];
+return entries.sort((a, b) => {
+const tsA = (a && a.ts) || '';
+const tsB = (b && b.ts) || '';
+if (tsA !== tsB) {
+return tsA < tsB ? 1 : -1;
+}
+const idA = (a && a.id) || '';
+const idB = (b && b.id) || '';
+return idA < idB ? 1 : (idA > idB ? -1 : 0);
+});
+}
 window.LogsController = function(appStore) {
 return {
 sources: [],
@@ -62,6 +75,7 @@ query: '',
 regex: false,
 level: '',
 stream: '',
+limit: 100,
 entries: [],
 loading: false,
 error: null,
@@ -72,6 +86,12 @@ fromCache: false,
 polling: true,
 pollTimer: null,
 pollInterval: 3000,
+pollInflight: false,
+newLogsCount: 0,
+newLogsTimer: null,
+isFullscreen: false,
+wrapLines: true,
+boundKeyHandler: null,
 expandedID: null,
 contextModalOpen: false,
 contextLoading: false,
@@ -83,33 +103,62 @@ this.loadSources();
 if (this.polling) {
 this.startPolling();
 }
+this.boundKeyHandler = (e) => {
+if (e.key === 'Escape' && this.isFullscreen) {
+this.toggleFullscreen();
+}
+};
+window.addEventListener('keydown', this.boundKeyHandler);
 },
 unmounted() {
 this.stopPolling();
+if (this.boundKeyHandler) {
+window.removeEventListener('keydown', this.boundKeyHandler);
+this.boundKeyHandler = null;
+}
+if (this.newLogsTimer) {
+clearTimeout(this.newLogsTimer);
+this.newLogsTimer = null;
+}
 },
 async loadSources() {
 try {
-const containerParam = (appStore.routeParams && appStore.routeParams.container) || (new URLSearchParams(window.location.hash.split('?')[1] || '').get('container'));
-if (containerParam && !appStore.selectedLogSource) {
-appStore.selectedLogSource = 'container:' + containerParam;
+const hashQuery = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '';
+const urlParams = new URLSearchParams(hashQuery);
+let containerParam = (appStore.routeParams && appStore.routeParams.container) || urlParams.get('container') || '';
+if (containerParam) {
+containerParam = decodeURIComponent(containerParam).trim().replace(/^\/+/, '');
 }
 const res = await appStore.apiFetch('/api/v1/sources');
 this.sources = (res && res.sources) || [];
-if (appStore.selectedLogSource) {
-const target = appStore.selectedLogSource;
+let target = appStore.selectedLogSource || (containerParam ? ('container:' + containerParam) : '');
 appStore.selectedLogSource = null;
+if (target) {
+const cleanTarget = target.replace(/^container:\/?/, '');
 const matched = this.sources.find(s =>
+String(s.id) === target ||
 s.name === target ||
 (s.kind + ':' + s.name) === target ||
-String(s.id) === target
+s.name === cleanTarget ||
+(s.kind === 'container' && s.name === cleanTarget)
 );
 if (matched) {
 this.selectedSource = String(matched.id);
+this.error = null;
 } else {
-this.selectedSource = target;
+this.selectedSource = '';
+this.entries = [];
+this.error = 'Source "' + target + '" not found. It may not have generated logs yet.';
+return;
 }
-} else if (!this.selectedSource && this.sources.length > 0) {
+} else if (!this.selectedSource || !this.sources.some(s => String(s.id) === this.selectedSource)) {
+if (this.sources.length > 0) {
 this.selectedSource = String(this.sources[0].id);
+this.error = null;
+} else {
+this.selectedSource = '';
+this.entries = [];
+}
 }
 if (this.selectedSource) {
 this.fetchLogs(false);
@@ -118,16 +167,38 @@ this.fetchLogs(false);
 this.error = e.message;
 }
 },
+async refreshAll() {
+await this.loadSources();
+},
 onSourceChange() {
 this.nextCursor = '';
 this.hasMore = false;
 this.entries = [];
+this.error = null;
 this.fetchLogs(false);
 },
 onFilterChange() {
 this.nextCursor = '';
 this.hasMore = false;
 this.fetchLogs(false);
+},
+toggleFullscreen() {
+this.isFullscreen = !this.isFullscreen;
+},
+toggleWrap() {
+this.wrapLines = !this.wrapLines;
+},
+clearQuery() {
+this.query = '';
+this.onFilterChange();
+},
+resetFilters() {
+this.query = '';
+this.regex = false;
+this.level = '';
+this.stream = '';
+this.limit = 100;
+this.onFilterChange();
 },
 toggleRegex() {
 this.regex = !this.regex;
@@ -160,7 +231,8 @@ if (!this.selectedSource) return;
 this.loading = true;
 this.error = null;
 try {
-let url = '/api/v1/logs?source=' + encodeURIComponent(this.selectedSource) + '&limit=100';
+const limitVal = this.limit || 100;
+let url = '/api/v1/logs?source=' + encodeURIComponent(this.selectedSource) + '&limit=' + encodeURIComponent(limitVal);
 if (this.query) {
 url += '&q=' + encodeURIComponent(this.query);
 if (this.regex) {
@@ -183,9 +255,16 @@ this.nextCursor = (res && res.nextCursor) || '';
 this.scannedBlocks = (res && res.scannedBlocks) || 0;
 this.fromCache = !!(res && res.fromCache);
 if (appendMode) {
-this.entries = this.entries.concat(newEntries);
+const seen = new Set(this.entries.map(e => e.id));
+for (let i = 0; i < newEntries.length; i++) {
+if (!seen.has(newEntries[i].id)) {
+this.entries.push(newEntries[i]);
+seen.add(newEntries[i].id);
+}
+}
+sortLatestFirst(this.entries);
 } else {
-this.entries = newEntries;
+this.entries = sortLatestFirst(newEntries);
 }
 } catch (e) {
 this.error = e.message;
@@ -194,7 +273,8 @@ this.loading = false;
 }
 },
 async pollLatest() {
-if (!this.selectedSource || this.loading) return;
+if (!this.selectedSource || this.loading || this.pollInflight) return;
+this.pollInflight = true;
 try {
 let url = '/api/v1/logs?source=' + encodeURIComponent(this.selectedSource) + '&limit=50';
 if (this.query) {
@@ -207,27 +287,34 @@ const res = await appStore.apiFetch(url);
 const latestEntries = (res && res.entries) || [];
 if (latestEntries.length === 0) return;
 if (this.entries.length === 0) {
-this.entries = latestEntries;
+this.entries = sortLatestFirst(latestEntries);
 this.nextCursor = (res && res.nextCursor) || '';
 this.hasMore = !!(res && res.hasMore);
 return;
 }
-const existingIDs = new Set(this.entries.slice(0, 100).map(e => e.id));
-const toPrepend = [];
+const existingIDs = new Set(this.entries.map(e => e.id));
+const toAdd = [];
 for (let i = 0; i < latestEntries.length; i++) {
 if (!existingIDs.has(latestEntries[i].id)) {
-toPrepend.push(latestEntries[i]);
-} else {
-break;
+toAdd.push(latestEntries[i]);
+existingIDs.add(latestEntries[i].id);
 }
 }
-if (toPrepend.length > 0) {
-this.entries = toPrepend.concat(this.entries);
+if (toAdd.length > 0) {
+this.entries = sortLatestFirst(toAdd.concat(this.entries));
 if (this.entries.length > 2000) {
 this.entries = this.entries.slice(0, 2000);
 }
+this.newLogsCount = toAdd.length;
+if (this.newLogsTimer) clearTimeout(this.newLogsTimer);
+this.newLogsTimer = setTimeout(() => {
+this.newLogsCount = 0;
+this.newLogsTimer = null;
+}, 2500);
 }
 } catch (e) {
+} finally {
+this.pollInflight = false;
 }
 },
 loadOlder() {
