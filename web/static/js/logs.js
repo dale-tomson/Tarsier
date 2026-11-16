@@ -75,6 +75,7 @@ query: '',
 regex: false,
 level: '',
 stream: '',
+limit: 100,
 entries: [],
 loading: false,
 error: null,
@@ -85,6 +86,12 @@ fromCache: false,
 polling: true,
 pollTimer: null,
 pollInterval: 3000,
+pollInflight: false,
+newLogsCount: 0,
+newLogsTimer: null,
+isFullscreen: false,
+wrapLines: true,
+boundKeyHandler: null,
 expandedID: null,
 contextModalOpen: false,
 contextLoading: false,
@@ -96,8 +103,24 @@ this.loadSources();
 if (this.polling) {
 this.startPolling();
 }
+this.boundKeyHandler = (e) => {
+if (e.key === 'Escape' && this.isFullscreen) {
+this.toggleFullscreen();
+}
+};
+window.addEventListener('keydown', this.boundKeyHandler);
 },
 unmounted() {
+this.stopPolling();
+if (this.boundKeyHandler) {
+window.removeEventListener('keydown', this.boundKeyHandler);
+this.boundKeyHandler = null;
+}
+if (this.newLogsTimer) {
+clearTimeout(this.newLogsTimer);
+this.newLogsTimer = null;
+}
+},
 this.stopPolling();
 },
 async loadSources() {
@@ -161,6 +184,24 @@ this.nextCursor = '';
 this.hasMore = false;
 this.fetchLogs(false);
 },
+toggleFullscreen() {
+this.isFullscreen = !this.isFullscreen;
+},
+toggleWrap() {
+this.wrapLines = !this.wrapLines;
+},
+clearQuery() {
+this.query = '';
+this.onFilterChange();
+},
+resetFilters() {
+this.query = '';
+this.regex = false;
+this.level = '';
+this.stream = '';
+this.limit = 100;
+this.onFilterChange();
+},
 toggleRegex() {
 this.regex = !this.regex;
 this.onFilterChange();
@@ -192,7 +233,8 @@ if (!this.selectedSource) return;
 this.loading = true;
 this.error = null;
 try {
-let url = '/api/v1/logs?source=' + encodeURIComponent(this.selectedSource) + '&limit=100';
+const limitVal = this.limit || 100;
+let url = '/api/v1/logs?source=' + encodeURIComponent(this.selectedSource) + '&limit=' + encodeURIComponent(limitVal);
 if (this.query) {
 url += '&q=' + encodeURIComponent(this.query);
 if (this.regex) {
@@ -233,7 +275,8 @@ this.loading = false;
 }
 },
 async pollLatest() {
-if (!this.selectedSource || this.loading) return;
+if (!this.selectedSource || this.loading || this.pollInflight) return;
+this.pollInflight = true;
 try {
 let url = '/api/v1/logs?source=' + encodeURIComponent(this.selectedSource) + '&limit=50';
 if (this.query) {
@@ -264,8 +307,16 @@ this.entries = sortLatestFirst(toAdd.concat(this.entries));
 if (this.entries.length > 2000) {
 this.entries = this.entries.slice(0, 2000);
 }
+this.newLogsCount = toAdd.length;
+if (this.newLogsTimer) clearTimeout(this.newLogsTimer);
+this.newLogsTimer = setTimeout(() => {
+this.newLogsCount = 0;
+this.newLogsTimer = null;
+}, 2500);
 }
 } catch (e) {
+} finally {
+this.pollInflight = false;
 }
 },
 loadOlder() {
