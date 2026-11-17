@@ -35,11 +35,11 @@ type metricTargetKey struct {
 
 // MetricEvaluator evaluates active metric threshold rules against metrics.HotCache on a periodic 10s ticker.
 type MetricEvaluator struct {
-	cache       *RuleCache
-	hotCache    *metrics.HotCache
-	sink        ObservationSink
-	clock       model.Clock
-	mu          sync.Mutex
+	cache        *RuleCache
+	hotCache     *metrics.HotCache
+	sink         ObservationSink
+	clock        model.Clock
+	mu           sync.Mutex
 	activeBreach map[metricTargetKey]bool // tracks rules/targets currently in breached state
 }
 
@@ -75,6 +75,23 @@ func (e *MetricEvaluator) Run(ctx context.Context) {
 	}
 }
 
+// NormalizeMetricName normalizes user-provided or legacy UI metric names to internal metric series names.
+func NormalizeMetricName(metric string) string {
+	m := strings.TrimSpace(metric)
+	switch m {
+	case "container_cpu_pct", "host_cpu_pct":
+		return "cpu_pct"
+	case "container_mem_pct":
+		return "mem_pct"
+	case "host_mem_used_pct":
+		return "mem_used_pct"
+	case "host_disk_used_pct":
+		return "disk_used_pct"
+	default:
+		return m
+	}
+}
+
 // EvalOnce executes a single evaluation pass across all active metric rules.
 func (e *MetricEvaluator) EvalOnce(ctx context.Context) {
 	if e.cache == nil || e.hotCache == nil || e.sink == nil {
@@ -94,7 +111,7 @@ func (e *MetricEvaluator) EvalOnce(ctx context.Context) {
 			continue
 		}
 		cond := rule.MetricCond
-		targets := e.resolveTargets(rule.Target, cond.Metric)
+		targets := e.resolveTargets(rule, cond.Metric)
 
 		for _, target := range targets {
 			key := metricTargetKey{ruleID: rule.ID, target: target}
@@ -155,51 +172,61 @@ func (e *MetricEvaluator) EvalOnce(ctx context.Context) {
 	e.mu.Unlock()
 }
 
-func (e *MetricEvaluator) resolveTargets(ruleTarget, metric string) []string {
-	if ruleTarget == "host" {
+func (e *MetricEvaluator) resolveTargets(rule *CompiledRule, rawMetric string) []string {
+	metric := NormalizeMetricName(rawMetric)
+	if rule.Target == "host" {
 		return []string{"host"}
 	}
 
 	activeEntities := e.hotCache.EntitiesWithMetric(metric)
+	if len(activeEntities) == 0 && metric != rawMetric {
+		activeEntities = e.hotCache.EntitiesWithMetric(rawMetric)
+	}
 
-	// If wildcard or prefix target
-	if ruleTarget == "*" {
+	// If wildcard
+	if rule.Target == "*" {
 		sort.Strings(activeEntities)
 		return activeEntities
 	}
 
-	if strings.HasSuffix(ruleTarget, ":*") {
-		prefix := strings.TrimSuffix(ruleTarget, "*")
-		var matched []string
-		for _, ent := range activeEntities {
-			if strings.HasPrefix(ent, prefix) {
-				matched = append(matched, ent)
-			}
+	var matched []string
+	for _, ent := range activeEntities {
+		if rule.MatchesTarget(ent) {
+			matched = append(matched, ent)
 		}
-		sort.Strings(matched)
+	}
+	sort.Strings(matched)
+	if len(matched) > 0 {
 		return matched
 	}
 
-	// Exact target
-	return []string{ruleTarget}
+	// Exact target fallback if not currently in active entities
+	if strings.HasPrefix(rule.Target, "container:") || strings.HasPrefix(rule.Target, "disk:") || rule.Target == "*" {
+		return []string{rule.Target}
+	}
+	return []string{"container:" + rule.Target}
 }
 
 func (e *MetricEvaluator) evaluateTarget(rule *CompiledRule, target string, now time.Time) (bool, float64, string, map[string]string, bool) {
 	cond := rule.MetricCond
+	metric := NormalizeMetricName(cond.Metric)
 
 	if rule.ForSec <= 0 {
 		// Instant evaluation: fetch newest point
-		pt, ok := e.hotCache.GetLatest(target, cond.Metric)
+		pt, ok := e.hotCache.GetLatest(target, metric)
+		if !ok && metric != cond.Metric {
+			pt, ok = e.hotCache.GetLatest(target, cond.Metric)
+		}
 		if !ok || (now.Unix()-pt.TS > 60) {
 			// Skip if no point or point is older than 60s
 			return false, 0, "", nil, false
 		}
 
 		breached := compareFloat(pt.Value, cond.Operator, cond.Threshold)
-		summary := fmt.Sprintf("%s %s is %.1f (%s %.1f)", target, cond.Metric, pt.Value, cond.Operator, cond.Threshold)
+		summary := fmt.Sprintf("%s %s is %.1f (%s %.1f)", target, metric, pt.Value, cond.Operator, cond.Threshold)
 		details := map[string]string{
 			"target":    target,
-			"metric":    cond.Metric,
+			"metric":    metric,
 			"value":     fmt.Sprintf("%.1f", pt.Value),
 			"threshold": fmt.Sprintf("%.1f", cond.Threshold),
 			"operator":  cond.Operator,
@@ -209,7 +236,10 @@ func (e *MetricEvaluator) evaluateTarget(rule *CompiledRule, target string, now 
 
 	// Sustained evaluation window
 	sinceTS := now.Unix() - int64(rule.ForSec)
-	stats, ok := e.hotCache.EvalWindow(target, cond.Metric, sinceTS)
+	stats, ok := e.hotCache.EvalWindow(target, metric, sinceTS)
+	if !ok && metric != cond.Metric {
+		stats, ok = e.hotCache.EvalWindow(target, cond.Metric, sinceTS)
+	}
 	if !ok {
 		return false, 0, "", nil, false
 	}
@@ -239,11 +269,11 @@ func (e *MetricEvaluator) evaluateTarget(rule *CompiledRule, target string, now 
 	}
 
 	summary := fmt.Sprintf("%s %s is %.1f (%s %.1f for %s)",
-		target, cond.Metric, stats.Avg, cond.Operator, cond.Threshold, formatDuration(rule.ForSec))
+		target, metric, stats.Avg, cond.Operator, cond.Threshold, formatDuration(rule.ForSec))
 
 	details := map[string]string{
 		"target":    target,
-		"metric":    cond.Metric,
+		"metric":    metric,
 		"avg":       fmt.Sprintf("%.1f", stats.Avg),
 		"min":       fmt.Sprintf("%.1f", stats.Min),
 		"max":       fmt.Sprintf("%.1f", stats.Max),

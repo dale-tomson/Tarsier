@@ -36,6 +36,7 @@ type ContainerMetricsSummary struct {
 	CPUPct   float64 `json:"cpu_pct"`
 	MemUsed  int64   `json:"mem_used"`
 	MemLimit int64   `json:"mem_limit"`
+	MemPct   float64 `json:"mem_pct"`
 	NetRxBps float64 `json:"net_rx_bps"`
 	NetTxBps float64 `json:"net_tx_bps"`
 }
@@ -227,6 +228,11 @@ func (s *Server) queryContainersList(ctx context.Context) (*ContainersListRespon
 				}
 				if p, ok := latest["mem_limit"]; ok {
 					item.Metrics.MemLimit = int64(p.Value)
+				}
+				if p, ok := latest["mem_pct"]; ok {
+					item.Metrics.MemPct = p.Value
+				} else if item.Metrics.MemLimit > 0 {
+					item.Metrics.MemPct = (float64(item.Metrics.MemUsed) / float64(item.Metrics.MemLimit)) * 100.0
 				}
 				if p, ok := latest["net_rx_bps"]; ok {
 					item.Metrics.NetRxBps = p.Value

@@ -284,6 +284,34 @@ func TestCompileRule_ValidationAndLimits(t *testing.T) {
 			t.Error("disk:* should not match container:api or host")
 		}
 
+		// Bare container target matching container: prefix
+		containerRule, _ := CompileRule(AlertRule{
+			Name: "App", Kind: "metric", Severity: "critical", Target: "spell-app-admin", ConditionJSON: validMetricJSON, Channels: []string{"discord"},
+		})
+		if !containerRule.MatchesTarget("container:spell-app-admin") {
+			t.Error("bare container target 'spell-app-admin' should match 'container:spell-app-admin'")
+		}
+		if !containerRule.MatchesTarget("spell-app-admin") {
+			t.Error("bare container target 'spell-app-admin' should match 'spell-app-admin'")
+		}
+		if containerRule.MatchesTarget("container:other-app") {
+			t.Error("should not match container:other-app")
+		}
+
+		// Wildcard without colon e.g. api-*
+		wildcardNoColon, _ := CompileRule(AlertRule{
+			Name: "API Wildcard", Kind: "metric", Severity: "warning", Target: "api-*", ConditionJSON: validMetricJSON, Channels: []string{"discord"},
+		})
+		if !wildcardNoColon.MatchesTarget("container:api-worker") {
+			t.Error("api-* should match container:api-worker")
+		}
+		if !wildcardNoColon.MatchesTarget("api-worker") {
+			t.Error("api-* should match api-worker")
+		}
+		if wildcardNoColon.MatchesTarget("container:web-worker") {
+			t.Error("api-* should not match container:web-worker")
+		}
+
 		// Substring matching (case-insensitive)
 		subRule, _ := CompileRule(AlertRule{
 			Name: "Sub", Kind: "log", Severity: "info", Target: "*",

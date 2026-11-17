@@ -88,23 +88,41 @@ func (s *Server) previewMetricRule(resp *RulePreviewResponse, compiled *alert.Co
 	}
 
 	cond := compiled.MetricCond
+	metric := alert.NormalizeMetricName(cond.Metric)
 	var targets []string
 	if compiled.Target == "host" {
 		targets = []string{"host"}
 	} else {
-		for _, ent := range s.hotCache.EntitiesWithMetric(cond.Metric) {
+		for _, ent := range s.hotCache.EntitiesWithMetric(metric) {
 			if compiled.MatchesTarget(ent) {
 				targets = append(targets, ent)
 			}
 		}
+		if metric != cond.Metric {
+			for _, ent := range s.hotCache.EntitiesWithMetric(cond.Metric) {
+				if compiled.MatchesTarget(ent) {
+					targets = append(targets, ent)
+				}
+			}
+		}
+	}
+
+	if len(targets) == 0 {
+		resp.SampleLines = append(resp.SampleLines, fmt.Sprintf("No active telemetry found for target %q with metric %q in HotCache", compiled.Target, metric))
+		return
 	}
 
 	nowSec := time.Now().UTC().Unix()
+	var liveTargetsCount int
 	for _, target := range targets {
-		pt, ok := s.hotCache.GetLatest(target, cond.Metric)
+		pt, ok := s.hotCache.GetLatest(target, metric)
+		if !ok && metric != cond.Metric {
+			pt, ok = s.hotCache.GetLatest(target, cond.Metric)
+		}
 		if !ok || (nowSec-pt.TS > 120) {
 			continue
 		}
+		liveTargetsCount++
 
 		breached := false
 		switch cond.Operator {
@@ -125,9 +143,13 @@ func (s *Server) previewMetricRule(resp *RulePreviewResponse, compiled *alert.Co
 			resp.MatchedTargets = append(resp.MatchedTargets, MatchedTarget{
 				Target:  target,
 				Value:   pt.Value,
-				Summary: fmt.Sprintf("%s %s is %.1f (%s %.1f)", target, cond.Metric, pt.Value, cond.Operator, cond.Threshold),
+				Summary: fmt.Sprintf("%s %s is %.1f (%s %.1f)", target, metric, pt.Value, cond.Operator, cond.Threshold),
 			})
 		}
+	}
+
+	if liveTargetsCount == 0 && len(resp.SampleLines) == 0 {
+		resp.SampleLines = append(resp.SampleLines, fmt.Sprintf("Target matched %d entity(s), but no sample received within last 120s", len(targets)))
 	}
 }
 

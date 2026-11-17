@@ -1582,25 +1582,30 @@ v-text="ctxEntry.level.toUpperCase()">
                 </div>
                 <label>
                   Target Entity *
-                  <input type="text" v-model="alertsView.ruleForm.target" placeholder="host, disk:/, api-*, *" required/>
-                  <small style="color:var(--pico-muted-color);">
+                  <input type="text" v-model="alertsView.ruleForm.target" placeholder="host, disk:/, api-*, *" list="alert-target-suggestions" required/>
+                  <datalist id="alert-target-suggestions">
+                    <option value="host">Host System</option>
+                    <option value="*">All Targets (*)</option>
+                    <option value="container:*">All Monitored Containers (container:*)</option>
+                    <option value="disk:/">Root Filesystem (disk:/)</option>
+                    <option v-for="c in alertsView.availableContainers" :key="c" :value="c">Container: {{c}}</option>
+                  </datalist>
+                  <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.4rem;align-items:center;">
+                    <small style="color:var(--pico-muted-color);margin-right:0.25rem;">Quick Select:</small>
+                    <button type="button" class="outline" style="font-size:0.75rem;padding:0.15rem 0.5rem;margin:0;" @click="alertsView.setTarget('host')">Host</button>
+                    <button type="button" class="outline" style="font-size:0.75rem;padding:0.15rem 0.5rem;margin:0;" @click="alertsView.setTarget('*')">All (*)</button>
+                    <button type="button" class="outline" style="font-size:0.75rem;padding:0.15rem 0.5rem;margin:0;" @click="alertsView.setTarget('container:*')">All Containers</button>
+                    <span v-if="alertsView.availableContainers.length" style="display:inline-flex;gap:0.3rem;align-items:center;">
+                      <small style="color:var(--pico-muted-color);">Containers:</small>
+                      <button v-for="c in alertsView.availableContainers.slice(0, 4)" :key="c" type="button" class="outline" style="font-size:0.75rem;padding:0.15rem 0.5rem;margin:0;" @click="alertsView.setTarget(c)" v-text="c"></button>
+                    </span>
+                  </div>
+                  <small style="color:var(--pico-muted-color);display:block;margin-top:0.25rem;">
                     Use
-                    <code>
-                      host
-                    </code>
-                    ,
-                    <code>
-                      disk:/
-                    </code>
-                    , container name or wildcard (
-                    <code>
-                      *
-                    </code>
-                    ,
-                    <code>
-                      api-*
-                    </code>
-                    )
+                    <code>host</code>,
+                    <code>disk:/</code>,
+                    container name (e.g. <code>spell-app-admin</code> or <code>container:spell-app-admin</code>),
+                    or wildcard (<code>*</code>, <code>api-*</code>)
                   </small>
                 </label>
                 <fieldset v-if="alertsView.ruleForm.kind === 'metric'" style="margin-top:1rem;">
@@ -1613,9 +1618,20 @@ v-text="ctxEntry.level.toUpperCase()">
                     <label>
                       Metric
                       <select v-model="alertsView.ruleForm.metricName">
-                        <option v-for="m in ['host_cpu_pct','host_mem_used_pct','host_disk_used_pct','container_cpu_pct','container_mem_pct']" :key="m" :value="m">
-                          {{m}}
-                        </option>
+                        <optgroup label="Container Metrics">
+                          <option value="cpu_pct">Container CPU Usage (%)</option>
+                          <option value="mem_pct">Container Memory Usage (%)</option>
+                          <option value="mem_used">Container Memory Used (Bytes)</option>
+                          <option value="net_rx_bps">Container Network In (B/s)</option>
+                          <option value="net_tx_bps">Container Network Out (B/s)</option>
+                        </optgroup>
+                        <optgroup label="Host Metrics">
+                          <option value="cpu_pct">Host CPU Usage (%)</option>
+                          <option value="mem_used_pct">Host Memory Usage (%)</option>
+                          <option value="disk_used_pct">Host Disk Usage (%)</option>
+                          <option value="load_1m">Host Load (1m)</option>
+                          <option value="load_5m">Host Load (5m)</option>
+                        </optgroup>
                       </select>
                     </label>
                     <label>
@@ -1628,7 +1644,10 @@ v-text="ctxEntry.level.toUpperCase()">
                     </label>
                     <label>
                       Threshold
-                      <input type="number" step="0.1" v-model="alertsView.ruleForm.metricThreshold" required/>
+                      <div style="display:flex;align-items:center;gap:0.35rem;">
+                        <input type="number" step="0.1" v-model="alertsView.ruleForm.metricThreshold" required style="margin:0;"/>
+                        <span v-if="alertsView.getMetricUnit()" class="badge" style="font-size:0.8rem;padding:0.3rem 0.5rem;" v-text="alertsView.getMetricUnit()"></span>
+                      </div>
                     </label>
                   </div>
                 </fieldset>
@@ -1707,10 +1726,16 @@ v-text="ctxEntry.level.toUpperCase()">
                 <label style="margin-top:0.5rem;">
                   Notification Channels *
                 </label>
-                <div style="display:flex;gap:1.5rem;margin-bottom:1rem;">
-                  <label v-for="ch in ['email','discord']" :key="ch">
+                <div style="display:flex;gap:1.5rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
+                  <label v-for="ch in ['email','discord']" :key="ch" style="display:inline-flex;align-items:center;margin:0;">
                     <input type="checkbox" v-model="alertsView.ruleForm.channels[ch]"/>
-                    {{ch.toUpperCase()}}
+                    <span>{{ch.toUpperCase()}}</span>
+                    <span v-if="alertsView.channelStatus && alertsView.channelStatus[ch]" class="badge badge-success" style="font-size:0.65rem;margin-left:0.35rem;padding:0.1rem 0.35rem;">
+                      Ready
+                    </span>
+                    <span v-else class="badge badge-warning" style="font-size:0.65rem;margin-left:0.35rem;padding:0.1rem 0.35rem;" title="Channel not configured in tarsier.yaml">
+                      Not Configured
+                    </span>
                   </label>
                 </div>
                 <div>
@@ -1737,8 +1762,11 @@ v-text="ctxEntry.level.toUpperCase()">
                   </ul>
                   <div v-if="alertsView.previewResult?.sample_lines && alertsView.previewResult.sample_lines.length">
                     <small>
-                      <strong>
+                      <strong v-if="alertsView.ruleForm.kind === 'log'">
                         Recent Matching Log Lines ({{ alertsView.previewResult?.recent_matches_24h || 0 }} hits):
+                      </strong>
+                      <strong v-else style="color:var(--pico-muted-color);">
+                        Diagnostics:
                       </strong>
                     </small>
                     <pre style="margin:0;font-size:0.75rem;padding:0.4rem;background:var(--pico-code-background-color);border-radius:4px;max-height:100px;overflow-y:auto;">

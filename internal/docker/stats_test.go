@@ -44,7 +44,7 @@ func (s *mockSink) Clear() {
 func TestComputeStats_CgroupV1AndV2(t *testing.T) {
 	// 1. Multicore cgroup v2 payload
 	var payloadV2 DockerStatsPayload
-	payloadV2.CPUStats.CPUUsage.TotalUsage = 2000000000   // 2s CPU
+	payloadV2.CPUStats.CPUUsage.TotalUsage = 2000000000    // 2s CPU
 	payloadV2.PreCPUStats.CPUUsage.TotalUsage = 1000000000 // 1s CPU -> delta 1s
 	payloadV2.CPUStats.SystemCPUUsage = 20000000000        // 20s Sys
 	payloadV2.PreCPUStats.SystemCPUUsage = 10000000000     // 10s Sys -> delta 10s
@@ -67,6 +67,9 @@ func TestComputeStats_CgroupV1AndV2(t *testing.T) {
 	}
 	if m2.MemLimit != 1073741824 {
 		t.Errorf("expected MemLimit 1073741824, got %.0f", m2.MemLimit)
+	}
+	if math.Abs(m2.MemPct-7.8125) > 0.001 {
+		t.Errorf("expected MemPct 7.81%%, got %.4f%%", m2.MemPct)
 	}
 
 	// 2. cgroup v1 memory subtraction (using "cache")
@@ -215,9 +218,9 @@ func TestStatsCollector_BoundedPoolAndRollupIntegration(t *testing.T) {
 	}
 
 	samples := sink.GetSamples()
-	// 12 containers * 3 baseline metrics = 36 samples
-	if len(samples) != 36 {
-		t.Fatalf("expected 36 metric samples, got %d", len(samples))
+	// 12 containers * 4 baseline metrics (cpu_pct, mem_used, mem_limit, mem_pct) = 48 samples
+	if len(samples) != 48 {
+		t.Fatalf("expected 48 metric samples, got %d", len(samples))
 	}
 
 	// Integration test with Ingestor and RollupEngine
@@ -252,6 +255,9 @@ func TestStatsCollector_BoundedPoolAndRollupIntegration(t *testing.T) {
 	}
 	if cpuPoint, ok := latest["cpu_pct"]; !ok || cpuPoint.Value <= 0 {
 		t.Errorf("expected positive cpu_pct in HotCache, got %v", cpuPoint)
+	}
+	if memPctPoint, ok := latest["mem_pct"]; !ok || memPctPoint.Value <= 0 {
+		t.Errorf("expected positive mem_pct in HotCache, got %v", memPctPoint)
 	}
 
 	// Run RollupEngine to verify automated 1d daily rollups

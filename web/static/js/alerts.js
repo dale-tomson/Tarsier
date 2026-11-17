@@ -22,7 +22,7 @@
       id:null,name:'',kind:'metric',target:'host',severity:'critical',for_sec:30,cooldown_sec:300,enabled:true,channels: {
         email:true,discord:false
       }
-      ,metricName:'host_cpu_pct',metricOp:'>',metricThreshold:90.0,logPattern:'',logIsRegex:false,logThreshold:5,logWindowSec:60,logMinLevel:5,containerEvents: {
+      ,metricName:'cpu_pct',metricOp:'>',metricThreshold:90.0,logPattern:'',logIsRegex:false,logThreshold:5,logWindowSec:60,logMinLevel:5,containerEvents: {
         oom:true,die:false,restart:false,stop:false,down:false
       }
       ,containerThreshold:1,containerWindowSec:0
@@ -32,9 +32,11 @@
   function AlertsController(store) {
     let timer=null;
     return {
-      activeAlerts:[],rules:[],templates:[],historyEvents:[],ruleSearch:'',activeTab:'rules',historyLimit:25,historySeverity:'',historyState:'',historyHasMore:false,historyLoading:false,modalOpen:false,isEditing:false,modalLoading:false,ruleForm:defaultForm(),previewLoading:false,previewResult:null,mounted() {
+      activeAlerts:[],rules:[],templates:[],historyEvents:[],availableContainers:[],channelStatus:{email:false,discord:false},ruleSearch:'',activeTab:'rules',historyLimit:25,historySeverity:'',historyState:'',historyHasMore:false,historyLoading:false,modalOpen:false,isEditing:false,modalLoading:false,ruleForm:defaultForm(),previewLoading:false,previewResult:null,mounted() {
         this.refresh();
         this.fetchTemplates();
+        this.fetchContainers();
+        this.fetchChannelStatus();
         this.startTimer();
       }
       ,unmounted() {
@@ -106,15 +108,54 @@
         if(!q)return this.rules;
         return this.rules.filter(r=>(r.name && r.name.toLowerCase().includes(q))||(r.target && r.target.toLowerCase().includes(q))||(r.kind && r.kind.toLowerCase().includes(q))||(r.severity && r.severity.toLowerCase().includes(q)));
       }
+      ,async fetchContainers() {
+        try {
+          const d=await store.apiFetch('/api/v1/containers');
+          if(d && Array.isArray(d.containers)) {
+            this.availableContainers=d.containers.map(c=> c.name).filter(Boolean);
+          }
+        } catch(_) {}
+      }
+      ,async fetchChannelStatus() {
+        try {
+          const cfg=await store.apiFetch('/api/v1/system/config');
+          if(cfg && cfg.notifiers) {
+            this.channelStatus.email=!!(cfg.notifiers.email && cfg.notifiers.email.enabled);
+            this.channelStatus.discord=!!(cfg.notifiers.discord && cfg.notifiers.discord.enabled);
+          }
+        } catch(_) {}
+      }
+      ,setTarget(t) {
+        this.ruleForm.target=t;
+        if(t==='host') {
+          if(this.ruleForm.metricName==='mem_pct')this.ruleForm.metricName='mem_used_pct';
+        } else if(t.startsWith('container:') || this.availableContainers.includes(t)) {
+          if(this.ruleForm.metricName==='mem_used_pct' || this.ruleForm.metricName==='disk_used_pct') {
+            this.ruleForm.metricName='cpu_pct';
+          }
+        }
+      }
+      ,getMetricUnit() {
+        const m=this.ruleForm.metricName || '';
+        if(m.includes('pct'))return '%';
+        if(m.includes('bps'))return 'B/s';
+        if(m.includes('bytes') || m==='mem_used')return 'Bytes';
+        if(m.startsWith('load'))return 'Load';
+        return '';
+      }
       ,openCreateModal() {
         this.isEditing=false;
         this.previewResult=null;
         this.ruleForm=defaultForm();
+        this.fetchContainers();
+        this.fetchChannelStatus();
         this.modalOpen=true;
       }
       ,openEditModal(rule) {
         this.isEditing=true;
         this.previewResult=null;
+        this.fetchContainers();
+        this.fetchChannelStatus();
         const form=defaultForm();
         form.id=rule.id;
         form.name=rule.name;
@@ -126,17 +167,20 @@
         form.enabled=rule.enabled;
         form.channels= {
           email:false,discord:false
-        }
-        ;
+        };
         (rule.channels || []).forEach(ch=> {
           const lc=ch.toLowerCase();
           if(form.channels[lc] !==undefined)form.channels[lc]=true;
-        }
-        );
+        });
         try {
           const c=JSON.parse(rule.condition_json || '{}');
           if(rule.kind==='metric') {
-            form.metricName=c.metric || 'host_cpu_pct';
+            let m=c.metric || 'cpu_pct';
+            if(m==='container_cpu_pct' || m==='host_cpu_pct')m='cpu_pct';
+            if(m==='container_mem_pct')m='mem_pct';
+            if(m==='host_mem_used_pct')m='mem_used_pct';
+            if(m==='host_disk_used_pct')m='disk_used_pct';
+            form.metricName=m;
             form.metricOp=c.operator || '>';
             form.metricThreshold=c.threshold !=null ? c.threshold:90.0;
           } else if(rule.kind==='log') {
@@ -148,13 +192,11 @@
           } else if(rule.kind==='container') {
             (c.events || []).forEach(e=> {
               if(form.containerEvents[e] !==undefined)form.containerEvents[e]=true;
-            }
-            );
+            });
             form.containerThreshold=c.threshold || 1;
             form.containerWindowSec=c.window_sec || 0;
           }
-        } catch(_) {
-        }
+        } catch(_) {}
         this.ruleForm=form;
         this.modalOpen=true;
       }
@@ -165,10 +207,14 @@
       ,buildConditionJSON() {
         const f=this.ruleForm;
         if(f.kind==='metric') {
-          return JSON.stringify( {
-            metric:f.metricName,operator:f.metricOp,threshold:parseFloat(f.metricThreshold)
-          }
-          );
+          let m=f.metricName || 'cpu_pct';
+          if(m==='container_cpu_pct' || m==='host_cpu_pct')m='cpu_pct';
+          if(m==='container_mem_pct')m='mem_pct';
+          if(m==='host_mem_used_pct')m='mem_used_pct';
+          if(m==='host_disk_used_pct')m='disk_used_pct';
+          return JSON.stringify({
+            metric:m,operator:f.metricOp || '>',threshold:parseFloat(f.metricThreshold)
+          });
         }
         if(f.kind==='log') {
           return JSON.stringify( {

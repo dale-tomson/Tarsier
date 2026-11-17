@@ -14,19 +14,19 @@ import (
 
 // MetricCondition defines evaluation parameters for numeric metric thresholds.
 type MetricCondition struct {
-	Metric    string  `json:"metric"`    // e.g. "cpu_pct", "mem_used_pct", "disk_used_pct", "load1"
-	Operator  string  `json:"operator"`  // ">" | ">=" | "<" | "<=" | "=="
+	Metric    string  `json:"metric"`   // e.g. "cpu_pct", "mem_used_pct", "disk_used_pct", "load1"
+	Operator  string  `json:"operator"` // ">" | ">=" | "<" | "<=" | "=="
 	Threshold float64 `json:"threshold"`
 }
 
 // LogCondition defines evaluation parameters for streaming log pattern matches.
 type LogCondition struct {
-	Pattern    string `json:"pattern"`     // Substring or regex pattern (max 512 bytes)
+	Pattern    string `json:"pattern"` // Substring or regex pattern (max 512 bytes)
 	IsRegex    bool   `json:"is_regex"`
 	IgnoreCase bool   `json:"ignore_case"`
-	MinLevel   uint8  `json:"min_level"`   // 0=any, 1=debug, 2=info, 3=warn, 4=error, 5=fatal
-	Threshold  int    `json:"threshold"`   // Match count >= Threshold within WindowSec (1..10000)
-	WindowSec  int    `json:"window_sec"`  // Sliding window duration (10..86400s)
+	MinLevel   uint8  `json:"min_level"`  // 0=any, 1=debug, 2=info, 3=warn, 4=error, 5=fatal
+	Threshold  int    `json:"threshold"`  // Match count >= Threshold within WindowSec (1..10000)
+	WindowSec  int    `json:"window_sec"` // Sliding window duration (10..86400s)
 }
 
 // ContainerCondition defines evaluation parameters for Docker container lifecycle events.
@@ -67,14 +67,14 @@ type CompiledRule struct {
 
 // Allowed values and limits
 const (
-	MaxRuleNameLen    = 120
-	MaxPatternLen     = 512
-	MaxForSec         = 86400   // 24 hours
-	MaxCooldownSec    = 604800  // 7 days
-	MaxRulesCount     = 250
-	MaxLogThreshold   = 10000
-	MinLogWindowSec   = 10
-	MaxLogWindowSec   = 86400
+	MaxRuleNameLen  = 120
+	MaxPatternLen   = 512
+	MaxForSec       = 86400  // 24 hours
+	MaxCooldownSec  = 604800 // 7 days
+	MaxRulesCount   = 250
+	MaxLogThreshold = 10000
+	MinLogWindowSec = 10
+	MaxLogWindowSec = 86400
 )
 
 var (
@@ -257,7 +257,25 @@ func buildTargetMatcher(target string) func(string) bool {
 			return strings.HasPrefix(actual, prefix)
 		}
 	}
+	if strings.HasSuffix(target, "*") {
+		prefix := strings.TrimSuffix(target, "*")
+		return func(actual string) bool {
+			if strings.HasPrefix(actual, prefix) {
+				return true
+			}
+			if strings.HasPrefix(actual, "container:") && strings.HasPrefix(strings.TrimPrefix(actual, "container:"), prefix) {
+				return true
+			}
+			return false
+		}
+	}
 	return func(actual string) bool {
-		return actual == target
+		if actual == target {
+			return true
+		}
+		if strings.HasPrefix(actual, "container:") && strings.TrimPrefix(actual, "container:") == target {
+			return true
+		}
+		return false
 	}
 }
