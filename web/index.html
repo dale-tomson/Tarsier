@@ -1556,7 +1556,7 @@ v-text="ctxEntry.level.toUpperCase()">
             </div>
           </article>
           <dialog :open="alertsView.modalOpen" class="rule-builder-dialog">
-            <article style="max-width:720px;width:100%;">
+            <article style="max-width:900px;width:100%;">
               <header>
                 <h3 style="margin:0;" v-text="alertsView.isEditing ? 'Edit Alert Rule' : 'Create Alert Rule'">
                 </h3>
@@ -1582,25 +1582,51 @@ v-text="ctxEntry.level.toUpperCase()">
                 </div>
                 <label>
                   Target Entity *
-                  <input type="text" v-model="alertsView.ruleForm.target" placeholder="host, disk:/, api-*, *" required/>
-                  <small style="color:var(--pico-muted-color);">
+                  <div class="searchable-target-wrap dialog-select-wrap">
+                    <div style="display:flex;gap:0.35rem;">
+                      <input type="text" v-model="alertsView.ruleForm.target" placeholder="e.g. spell-app-admin, host, api-*, *" style="margin:0;" required/>
+                      <button type="button" class="outline" style="width:auto;white-space:nowrap;padding:0.25rem 0.75rem;margin:0;font-size:0.8rem;" @click="alertsView.toggleTargetDropdown()" title="Browse and search targets">
+                        <span>Browse</span>
+                        <span style="font-size:0.7rem;margin-left:0.25rem;" v-text="alertsView.targetDropdownOpen ? '▴' : '▾'"></span>
+                      </button>
+                    </div>
+                    <div v-if="alertsView.targetDropdownOpen" class="dialog-select-menu" @click.stop>
+                      <div class="custom-select-search-wrap">
+                        <span class="custom-select-search-icon">&#x2315;</span>
+                        <input type="text" id="alert-target-search-input" class="custom-select-search-input" v-model="alertsView.targetSearchQuery" placeholder="Filter targets (type container name, host, disk)..." autocomplete="off" @keydown.esc="alertsView.targetDropdownOpen=false">
+                        <button v-if="alertsView.targetSearchQuery" type="button" class="custom-select-clear-btn" @click="alertsView.targetSearchQuery=''">✕</button>
+                      </div>
+                      <div class="custom-select-options" style="max-height:220px;">
+                        <div v-if="alertsView.filteredTargets().length === 0" class="custom-select-empty">No matching targets found</div>
+                        <div v-for="t in alertsView.filteredTargets()" :key="t.value" class="custom-select-option" :class="{selected: alertsView.ruleForm.target === t.value}" @click="alertsView.selectTarget(t.value)" style="padding:0.45rem 0.75rem;gap:0.65rem;">
+                          <span class="badge" :class="t.badgeClass" style="font-size:0.68rem;padding:0.12rem 0.35rem;min-width:62px;text-align:center;" v-text="t.category"></span>
+                          <span style="flex:1;font-size:0.82rem;" v-text="t.label"></span>
+                          <code style="font-size:0.75rem;color:var(--pico-muted-color);" v-text="t.value"></code>
+                          <span v-if="alertsView.ruleForm.target === t.value" style="color:var(--pico-primary);font-weight:bold;margin-left:0.25rem;">✓</span>
+                        </div>
+                        <div v-if="alertsView.targetSearchQuery && !alertsView.hasExactTargetMatch()" class="custom-select-option" style="border-top:1px dashed var(--pico-muted-border-color);padding:0.45rem 0.75rem;gap:0.65rem;" @click="alertsView.selectTarget(alertsView.targetSearchQuery.trim())">
+                          <span class="badge badge-warning" style="font-size:0.68rem;padding:0.12rem 0.35rem;min-width:62px;text-align:center;">Custom</span>
+                          <span style="flex:1;font-size:0.82rem;">Set target to: <strong>{{ alertsView.targetSearchQuery.trim() }}</strong></span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.4rem;align-items:center;">
+                    <small style="color:var(--pico-muted-color);margin-right:0.25rem;">Quick Select:</small>
+                    <button type="button" class="outline" style="font-size:0.75rem;padding:0.15rem 0.5rem;margin:0;" @click="alertsView.selectTarget('host')">Host</button>
+                    <button type="button" class="outline" style="font-size:0.75rem;padding:0.15rem 0.5rem;margin:0;" @click="alertsView.selectTarget('*')">All (*)</button>
+                    <button type="button" class="outline" style="font-size:0.75rem;padding:0.15rem 0.5rem;margin:0;" @click="alertsView.selectTarget('container:*')">All Containers</button>
+                    <span v-if="alertsView.availableContainers.length" style="display:inline-flex;gap:0.3rem;align-items:center;">
+                      <small style="color:var(--pico-muted-color);">Containers:</small>
+                      <button v-for="c in alertsView.availableContainers.slice(0, 4)" :key="c" type="button" class="outline" style="font-size:0.75rem;padding:0.15rem 0.5rem;margin:0;" @click="alertsView.selectTarget(c)" v-text="c"></button>
+                    </span>
+                  </div>
+                  <small style="color:var(--pico-muted-color);display:block;margin-top:0.25rem;">
                     Use
-                    <code>
-                      host
-                    </code>
-                    ,
-                    <code>
-                      disk:/
-                    </code>
-                    , container name or wildcard (
-                    <code>
-                      *
-                    </code>
-                    ,
-                    <code>
-                      api-*
-                    </code>
-                    )
+                    <code>host</code>,
+                    <code>disk:/</code>,
+                    container name (e.g. <code>spell-app-admin</code> or <code>container:spell-app-admin</code>),
+                    or wildcard (<code>*</code>, <code>api-*</code>)
                   </small>
                 </label>
                 <fieldset v-if="alertsView.ruleForm.kind === 'metric'" style="margin-top:1rem;">
@@ -1609,26 +1635,54 @@ v-text="ctxEntry.level.toUpperCase()">
                       Metric Condition
                     </strong>
                   </legend>
-                  <div class="grid">
+                  <!-- Row 1: Metric (Single Full-Width Row) -->
+                  <label>
+                    Metric *
+                    <div class="searchable-metric-wrap dialog-select-wrap" style="margin-top:0.25rem;">
+                      <button type="button" class="custom-select-trigger" @click="alertsView.toggleMetricDropdown()" style="display:flex;align-items:center;padding:0.45rem 0.75rem;min-height:38px;">
+                        <div class="custom-select-selected-content" style="display:flex;align-items:center;gap:0.6rem;flex:1;overflow:hidden;">
+                          <span class="badge" :class="alertsView.currentMetric().category === 'Container' ? 'badge-primary' : 'badge-secondary'" style="font-size:0.7rem;padding:0.12rem 0.4rem;min-width:65px;text-align:center;" v-text="alertsView.currentMetric().category"></span>
+                          <strong style="font-size:0.85rem;" v-text="alertsView.currentMetric().label"></strong>
+                          <code style="font-size:0.75rem;color:var(--pico-muted-color);margin-left:auto;" v-text="alertsView.currentMetric().value"></code>
+                        </div>
+                        <span class="custom-select-arrow" style="margin-left:0.5rem;" v-text="alertsView.metricDropdownOpen ? '▴' : '▾'"></span>
+                      </button>
+                      <div v-if="alertsView.metricDropdownOpen" class="dialog-select-menu" @click.stop>
+                        <div class="custom-select-search-wrap">
+                          <span class="custom-select-search-icon">&#x2315;</span>
+                          <input type="text" id="alert-metric-search-input" class="custom-select-search-input" v-model="alertsView.metricSearchQuery" placeholder="Search metrics (cpu, memory, disk, net, load)..." autocomplete="off" @keydown.esc="alertsView.metricDropdownOpen=false">
+                          <button v-if="alertsView.metricSearchQuery" type="button" class="custom-select-clear-btn" @click="alertsView.metricSearchQuery=''">✕</button>
+                        </div>
+                        <div class="custom-select-options" style="max-height:220px;">
+                          <div v-if="alertsView.filteredMetrics().length === 0" class="custom-select-empty">No matching metrics found</div>
+                          <div v-for="m in alertsView.filteredMetrics()" :key="m.id" class="custom-select-option" :class="{selected: alertsView.ruleForm.metricName === m.value}" @click="alertsView.selectMetric(m)" style="padding:0.45rem 0.75rem;gap:0.65rem;">
+                            <span class="badge" :class="m.category === 'Container' ? 'badge-primary' : 'badge-secondary'" style="font-size:0.68rem;padding:0.12rem 0.35rem;min-width:65px;text-align:center;" v-text="m.category"></span>
+                            <span style="flex:1;font-size:0.82rem;" v-text="m.label"></span>
+                            <code style="font-size:0.75rem;color:var(--pico-muted-color);" v-text="m.value"></code>
+                            <span v-if="alertsView.ruleForm.metricName === m.value" style="color:var(--pico-primary);font-weight:bold;margin-left:0.25rem;">✓</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </label>
+                  <!-- Row 2: Operator & Threshold (2-Column Grid Row) -->
+                  <div class="grid" style="margin-top:0.75rem;">
                     <label>
-                      Metric
-                      <select v-model="alertsView.ruleForm.metricName">
-                        <option v-for="m in ['host_cpu_pct','host_mem_used_pct','host_disk_used_pct','container_cpu_pct','container_mem_pct']" :key="m" :value="m">
-                          {{m}}
-                        </option>
+                      Operator *
+                      <select v-model="alertsView.ruleForm.metricOp" style="margin-top:0.25rem;">
+                        <option value=">">&gt; (Greater than)</option>
+                        <option value=">=">&gt;= (Greater than or equal)</option>
+                        <option value="<">&lt; (Less than)</option>
+                        <option value="<=">&lt;= (Less than or equal)</option>
+                        <option value="==">== (Equal to)</option>
                       </select>
                     </label>
                     <label>
-                      Op
-                      <select v-model="alertsView.ruleForm.metricOp">
-                        <option v-for="op in ['>','>=','<','<=','==']" :key="op" :value="op">
-                          {{op}}
-                        </option>
-                      </select>
-                    </label>
-                    <label>
-                      Threshold
-                      <input type="number" step="0.1" v-model="alertsView.ruleForm.metricThreshold" required/>
+                      Threshold *
+                      <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.25rem;">
+                        <input type="number" step="0.1" v-model="alertsView.ruleForm.metricThreshold" required style="margin-bottom:0;flex:1;"/>
+                        <span v-if="alertsView.getMetricUnit()" class="badge" style="font-size:0.85rem;padding:0.45rem 0.75rem;" v-text="alertsView.getMetricUnit()"></span>
+                      </div>
                     </label>
                   </div>
                 </fieldset>
@@ -1707,10 +1761,16 @@ v-text="ctxEntry.level.toUpperCase()">
                 <label style="margin-top:0.5rem;">
                   Notification Channels *
                 </label>
-                <div style="display:flex;gap:1.5rem;margin-bottom:1rem;">
-                  <label v-for="ch in ['email','discord']" :key="ch">
+                <div style="display:flex;gap:1.5rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
+                  <label v-for="ch in ['email','discord']" :key="ch" style="display:inline-flex;align-items:center;margin:0;">
                     <input type="checkbox" v-model="alertsView.ruleForm.channels[ch]"/>
-                    {{ch.toUpperCase()}}
+                    <span>{{ch.toUpperCase()}}</span>
+                    <span v-if="alertsView.channelStatus && alertsView.channelStatus[ch]" class="badge badge-success" style="font-size:0.65rem;margin-left:0.35rem;padding:0.1rem 0.35rem;">
+                      Ready
+                    </span>
+                    <span v-else class="badge badge-warning" style="font-size:0.65rem;margin-left:0.35rem;padding:0.1rem 0.35rem;" title="Channel not configured in tarsier.yaml">
+                      Not Configured
+                    </span>
                   </label>
                 </div>
                 <div>
@@ -1737,8 +1797,11 @@ v-text="ctxEntry.level.toUpperCase()">
                   </ul>
                   <div v-if="alertsView.previewResult?.sample_lines && alertsView.previewResult.sample_lines.length">
                     <small>
-                      <strong>
+                      <strong v-if="alertsView.ruleForm.kind === 'log'">
                         Recent Matching Log Lines ({{ alertsView.previewResult?.recent_matches_24h || 0 }} hits):
+                      </strong>
+                      <strong v-else style="color:var(--pico-muted-color);">
+                        Diagnostics:
                       </strong>
                     </small>
                     <pre style="margin:0;font-size:0.75rem;padding:0.4rem;background:var(--pico-code-background-color);border-radius:4px;max-height:100px;overflow-y:auto;">

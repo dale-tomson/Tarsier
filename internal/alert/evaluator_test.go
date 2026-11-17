@@ -397,3 +397,111 @@ func TestContainerEvaluator_OOMRestartLoopAndRecovery(t *testing.T) {
 		t.Fatal("expected SweepWindows to emit recovery observation once window expired")
 	}
 }
+
+func TestMetricEvaluator_ContainerTargetAndMetricNormalization(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbStore, err := db.Open(context.Background(), tmpDir)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer dbStore.Close()
+
+	ruleStore := NewRuleStore(dbStore.Config)
+	ctx := context.Background()
+
+	// 1. Bare container target with legacy container_cpu_pct metric
+	rContainer, err := ruleStore.CreateRule(ctx, AlertRule{
+		Name:          "spell-cpu-test",
+		Kind:          "metric",
+		Enabled:       true,
+		Severity:      "critical",
+		Target:        "spell-app-admin", // bare container name without "container:"
+		ConditionJSON: `{"metric":"container_cpu_pct","operator":">","threshold":90.0}`,
+		ForSec:        0,
+		CooldownSec:   300,
+		Channels:      []string{"discord"},
+	})
+	if err != nil {
+		t.Fatalf("create spell-cpu-test rule: %v", err)
+	}
+
+	// 2. Wildcard container target with container_mem_pct
+	rWildcard, err := ruleStore.CreateRule(ctx, AlertRule{
+		Name:          "api-mem-test",
+		Kind:          "metric",
+		Enabled:       true,
+		Severity:      "warning",
+		Target:        "api-*",
+		ConditionJSON: `{"metric":"container_mem_pct","operator":">","threshold":80.0}`,
+		ForSec:        0,
+		CooldownSec:   300,
+		Channels:      []string{"discord"},
+	})
+	if err != nil {
+		t.Fatalf("create api-mem-test rule: %v", err)
+	}
+
+	// 3. Host legacy host_cpu_pct
+	rHost, err := ruleStore.CreateRule(ctx, AlertRule{
+		Name:          "host-cpu-legacy",
+		Kind:          "metric",
+		Enabled:       true,
+		Severity:      "warning",
+		Target:        "host",
+		ConditionJSON: `{"metric":"host_cpu_pct","operator":">","threshold":85.0}`,
+		ForSec:        0,
+		CooldownSec:   300,
+		Channels:      []string{"discord"},
+	})
+	if err != nil {
+		t.Fatalf("create host-cpu-legacy rule: %v", err)
+	}
+
+	ruleCache := NewRuleCache(ruleStore)
+	if err := ruleCache.Reload(ctx); err != nil {
+		t.Fatalf("reload ruleCache: %v", err)
+	}
+
+	hotCache := metrics.NewHotCache(100, 180)
+	clock := newFakeClock(time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC))
+	nowSec := clock.Now().Unix()
+
+	// Ingest metrics as Docker collector does:
+	// - container:spell-app-admin with cpu_pct
+	// - container:api-srv with mem_pct
+	// - host with cpu_pct
+	hotCache.Record(
+		model.MetricSample{Entity: "container:spell-app-admin", Metric: "cpu_pct", Value: 92.4, TS: nowSec},
+		model.MetricSample{Entity: "container:api-srv", Metric: "mem_pct", Value: 85.0, TS: nowSec},
+		model.MetricSample{Entity: "host", Metric: "cpu_pct", Value: 91.0, TS: nowSec},
+	)
+
+	sink := &recordingSink{}
+	evaluator := NewMetricEvaluator(ruleCache, hotCache, sink, clock)
+
+	evaluator.EvalOnce(ctx)
+
+	obs := sink.Observations()
+	var spellBreached, apiBreached, hostBreached bool
+	for _, o := range obs {
+		if o.Rule.ID == rContainer.ID && o.Breached && o.Target == "container:spell-app-admin" && o.Value == 92.4 {
+			spellBreached = true
+		}
+		if o.Rule.ID == rWildcard.ID && o.Breached && o.Target == "container:api-srv" && o.Value == 85.0 {
+			apiBreached = true
+		}
+		if o.Rule.ID == rHost.ID && o.Breached && o.Target == "host" && o.Value == 91.0 {
+			hostBreached = true
+		}
+	}
+
+	if !spellBreached {
+		t.Errorf("expected spell-app-admin container alert to breach with 92.4 CPU, got obs: %+v", obs)
+	}
+	if !apiBreached {
+		t.Errorf("expected api-* container alert to breach with 85.0 mem_pct, got obs: %+v", obs)
+	}
+	if !hostBreached {
+		t.Errorf("expected host alert to breach with 91.0 cpu_pct, got obs: %+v", obs)
+	}
+}

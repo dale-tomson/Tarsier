@@ -28,6 +28,7 @@ type ContainerMetrics struct {
 	CPUPct      float64
 	MemUsed     float64
 	MemLimit    float64
+	MemPct      float64
 	HasRates    bool
 	NetRxBps    float64
 	NetTxBps    float64
@@ -104,10 +105,19 @@ func ComputeContainerMetrics(payload DockerStatsPayload, prev *ioCounterState, n
 		BlkWrite: totalBlkWrite,
 	}
 
+	var memPct float64
+	if memLimit > 0 {
+		memPct = (memUsed / memLimit) * 100.0
+		if memPct > 100.0 {
+			memPct = 100.0
+		}
+	}
+
 	res := ContainerMetrics{
 		CPUPct:   cpuPct,
 		MemUsed:  memUsed,
 		MemLimit: memLimit,
+		MemPct:   memPct,
 	}
 
 	// If previous baseline exists and time elapsed, calculate rates
@@ -330,6 +340,7 @@ func (c *StatsCollector) CollectOnce(ctx context.Context) {
 					{Entity: entity, Metric: "cpu_pct", TS: nowTS, Value: metrics.CPUPct},
 					{Entity: entity, Metric: "mem_used", TS: nowTS, Value: metrics.MemUsed},
 					{Entity: entity, Metric: "mem_limit", TS: nowTS, Value: metrics.MemLimit},
+					{Entity: entity, Metric: "mem_pct", TS: nowTS, Value: metrics.MemPct},
 				}
 
 				if metrics.HasRates {
