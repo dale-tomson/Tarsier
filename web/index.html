@@ -1555,90 +1555,94 @@ v-text="ctxEntry.level.toUpperCase()">
               </button>
             </div>
           </article>
-          <dialog :open="alertsView.modalOpen" class="rule-builder-dialog">
-            <article style="max-width:900px;width:100%;">
-              <header>
-                <h3 style="margin:0;" v-text="alertsView.isEditing ? 'Edit Alert Rule' : 'Create Alert Rule'">
-                </h3>
-              </header>
-              <form @submit.prevent="alertsView.saveRule()">
-                <div class="grid">
-                  <label>
-                    Rule Name *
-                    <input type="text" v-model="alertsView.ruleForm.name" placeholder="e.g. High API Host CPU" required/>
-                  </label>
-                  <label>
-                    Severity *
-                    <select v-model="alertsView.ruleForm.severity">
-                      <option v-for="s in ['critical','warning','info']" :key="s" :value="s">
-                        {{s}}
-                      </option>
-                    </select>
-                  </label>
+          <dialog :open="alertsView.modalOpen" class="rule-builder-dialog" @keydown.esc="alertsView.closeModal()">
+            <article class="wizard-dialog-article">
+              <header class="wizard-dialog-header">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">
+                  <h3 style="margin:0;" v-text="alertsView.isEditing ? 'Edit Alert Rule' : 'Create Alert Rule'"></h3>
+                  <button type="button" class="toast-close wizard-close-x" @click="alertsView.closeModal()" aria-label="Close alert wizard">&times;</button>
                 </div>
-                <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
-                  <button v-for="k in ['metric','log','container']" :key="k" type="button" class="outline" :class="{active: alertsView.ruleForm.kind === k}" style="flex:1;" @click="alertsView.ruleForm.kind = k" v-text="k.toUpperCase()">
+                <nav class="wizard-stepper" aria-label="Alert creation steps">
+                  <button
+                    v-for="st in [{num:1,label:'1. Metric & Target'},{num:2,label:'2. Conditions & Channels'},{num:3,label:'3. Review & Dry Run'}]"
+                    :key="st.num"
+                    type="button"
+                    class="wizard-step-btn"
+                    :class="{ active: alertsView.wizardStep === st.num, completed: alertsView.wizardStep > st.num, clickable: alertsView.canJumpToStep(st.num) }"
+                    :disabled="!alertsView.canJumpToStep(st.num)"
+                    :aria-current="alertsView.wizardStep === st.num ? 'step' : null"
+                    @click="alertsView.goToStep(st.num)"
+                  >
+                    <span class="wizard-step-dot" v-text="alertsView.wizardStep > st.num ? '✓' : st.num"></span>
+                    <span class="wizard-step-label" v-text="st.label"></span>
                   </button>
+                </nav>
+              </header>
+
+              <form @submit.prevent="alertsView.handleFormSubmit()">
+                <div v-if="alertsView.stepError" class="wizard-error-banner" role="alert">
+                  <span>&#9888;&#65039;</span>
+                  <span v-text="alertsView.stepError"></span>
                 </div>
-                <label>
-                  Target Entity *
-                  <div class="searchable-target-wrap dialog-select-wrap">
-                    <div style="display:flex;gap:0.35rem;">
-                      <input type="text" v-model="alertsView.ruleForm.target" placeholder="e.g. spell-app-admin, host, api-*, *" style="margin:0;" required/>
-                      <button type="button" class="outline" style="width:auto;white-space:nowrap;padding:0.25rem 0.75rem;margin:0;font-size:0.8rem;" @click="alertsView.toggleTargetDropdown()" title="Browse and search targets">
-                        <span>Browse</span>
-                        <span style="font-size:0.7rem;margin-left:0.25rem;" v-text="alertsView.targetDropdownOpen ? '▴' : '▾'"></span>
+
+                <!-- STEP 1: METRIC & TARGET -->
+                <div v-if="alertsView.wizardStep === 1" class="wizard-step-panel">
+                  <div class="wizard-section-block">
+                    <div class="wizard-section-header">
+                      <span class="wizard-section-title">Alert Type</span>
+                      <small class="wizard-section-hint">Monitor numeric resource metrics, log patterns, or container lifecycle events.</small>
+                    </div>
+                    <div class="wizard-kind-tabs">
+                      <button
+                        v-for="kd in [{k:'metric',label:'📊 Metric Threshold'},{k:'log',label:'📄 Log Pattern'},{k:'container',label:'🐳 Container Event'}]"
+                        :key="kd.k"
+                        type="button"
+                        class="wizard-kind-tab"
+                        :class="{ active: alertsView.ruleForm.kind === kd.k }"
+                        @click="alertsView.setKind(kd.k)"
+                        v-text="kd.label"
+                      ></button>
+                    </div>
+                  </div>
+
+                  <div v-if="alertsView.ruleForm.kind === 'metric'" class="wizard-section-block">
+                    <div class="wizard-section-header">
+                      <span class="wizard-section-title">1. Select Metric</span>
+                      <small class="wizard-section-hint">Choose a common metric below or pick any granular metric.</small>
+                    </div>
+                    <div class="wizard-card-grid">
+                      <button
+                        v-for="card in alertsView.primaryMetricCards"
+                        :key="card.key"
+                        type="button"
+                        class="wizard-choice-card"
+                        :class="{ active: alertsView.isMetricCardActive(card.key) }"
+                        @click="alertsView.selectMetricCard(card.key)"
+                      >
+                        <div class="wizard-card-top">
+                          <span class="wizard-card-icon" v-text="card.icon"></span>
+                          <span v-if="alertsView.isMetricCardActive(card.key)" class="wizard-card-check">✓</span>
+                        </div>
+                        <strong class="wizard-card-title" v-text="card.title"></strong>
+                        <small class="wizard-card-sub" v-text="card.subtitle"></small>
+                      </button>
+
+                      <button
+                        type="button"
+                        class="wizard-choice-card"
+                        :class="{ active: alertsView.customMetricOpen || !['cpu_pct','mem_used_pct','mem_pct','disk_used_pct','net_rx_bps','load_1m'].includes(alertsView.ruleForm.metricName) }"
+                        @click="alertsView.openCustomMetricPicker()"
+                      >
+                        <div class="wizard-card-top">
+                          <span class="wizard-card-icon">⚙️</span>
+                          <span v-if="alertsView.customMetricOpen || !['cpu_pct','mem_used_pct','mem_pct','disk_used_pct','net_rx_bps','load_1m'].includes(alertsView.ruleForm.metricName)" class="wizard-card-check">✓</span>
+                        </div>
+                        <strong class="wizard-card-title">Custom / Other</strong>
+                        <small class="wizard-card-sub">Search all metrics</small>
                       </button>
                     </div>
-                    <div v-if="alertsView.targetDropdownOpen" class="dialog-select-menu" @click.stop>
-                      <div class="custom-select-search-wrap">
-                        <span class="custom-select-search-icon">&#x2315;</span>
-                        <input type="text" id="alert-target-search-input" class="custom-select-search-input" v-model="alertsView.targetSearchQuery" placeholder="Filter targets (type container name, host, disk)..." autocomplete="off" @keydown.esc="alertsView.targetDropdownOpen=false">
-                        <button v-if="alertsView.targetSearchQuery" type="button" class="custom-select-clear-btn" @click="alertsView.targetSearchQuery=''">✕</button>
-                      </div>
-                      <div class="custom-select-options" style="max-height:220px;">
-                        <div v-if="alertsView.filteredTargets().length === 0" class="custom-select-empty">No matching targets found</div>
-                        <div v-for="t in alertsView.filteredTargets()" :key="t.value" class="custom-select-option" :class="{selected: alertsView.ruleForm.target === t.value}" @click="alertsView.selectTarget(t.value)" style="padding:0.45rem 0.75rem;gap:0.65rem;">
-                          <span class="badge" :class="t.badgeClass" style="font-size:0.68rem;padding:0.12rem 0.35rem;min-width:62px;text-align:center;" v-text="t.category"></span>
-                          <span style="flex:1;font-size:0.82rem;" v-text="t.label"></span>
-                          <code style="font-size:0.75rem;color:var(--pico-muted-color);" v-text="t.value"></code>
-                          <span v-if="alertsView.ruleForm.target === t.value" style="color:var(--pico-primary);font-weight:bold;margin-left:0.25rem;">✓</span>
-                        </div>
-                        <div v-if="alertsView.targetSearchQuery && !alertsView.hasExactTargetMatch()" class="custom-select-option" style="border-top:1px dashed var(--pico-muted-border-color);padding:0.45rem 0.75rem;gap:0.65rem;" @click="alertsView.selectTarget(alertsView.targetSearchQuery.trim())">
-                          <span class="badge badge-warning" style="font-size:0.68rem;padding:0.12rem 0.35rem;min-width:62px;text-align:center;">Custom</span>
-                          <span style="flex:1;font-size:0.82rem;">Set target to: <strong>{{ alertsView.targetSearchQuery.trim() }}</strong></span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.4rem;align-items:center;">
-                    <small style="color:var(--pico-muted-color);margin-right:0.25rem;">Quick Select:</small>
-                    <button type="button" class="outline" style="font-size:0.75rem;padding:0.15rem 0.5rem;margin:0;" @click="alertsView.selectTarget('host')">Host</button>
-                    <button type="button" class="outline" style="font-size:0.75rem;padding:0.15rem 0.5rem;margin:0;" @click="alertsView.selectTarget('*')">All (*)</button>
-                    <button type="button" class="outline" style="font-size:0.75rem;padding:0.15rem 0.5rem;margin:0;" @click="alertsView.selectTarget('container:*')">All Containers</button>
-                    <span v-if="alertsView.availableContainers.length" style="display:inline-flex;gap:0.3rem;align-items:center;">
-                      <small style="color:var(--pico-muted-color);">Containers:</small>
-                      <button v-for="c in alertsView.availableContainers.slice(0, 4)" :key="c" type="button" class="outline" style="font-size:0.75rem;padding:0.15rem 0.5rem;margin:0;" @click="alertsView.selectTarget(c)" v-text="c"></button>
-                    </span>
-                  </div>
-                  <small style="color:var(--pico-muted-color);display:block;margin-top:0.25rem;">
-                    Use
-                    <code>host</code>,
-                    <code>disk:/</code>,
-                    container name (e.g. <code>spell-app-admin</code> or <code>container:spell-app-admin</code>),
-                    or wildcard (<code>*</code>, <code>api-*</code>)
-                  </small>
-                </label>
-                <fieldset v-if="alertsView.ruleForm.kind === 'metric'" style="margin-top:1rem;">
-                  <legend>
-                    <strong>
-                      Metric Condition
-                    </strong>
-                  </legend>
-                  <!-- Row 1: Metric (Single Full-Width Row) -->
-                  <label>
-                    Metric *
-                    <div class="searchable-metric-wrap dialog-select-wrap" style="margin-top:0.25rem;">
+
+                    <div v-if="alertsView.customMetricOpen || !['cpu_pct','mem_used_pct','mem_pct','disk_used_pct','net_rx_bps','load_1m'].includes(alertsView.ruleForm.metricName)" class="searchable-metric-wrap dialog-select-wrap" style="margin-top:0.75rem;">
                       <button type="button" class="custom-select-trigger" @click="alertsView.toggleMetricDropdown()" style="display:flex;align-items:center;padding:0.45rem 0.75rem;min-height:38px;">
                         <div class="custom-select-selected-content" style="display:flex;align-items:center;gap:0.6rem;flex:1;overflow:hidden;">
                           <span class="badge" :class="alertsView.currentMetric().category === 'Container' ? 'badge-primary' : 'badge-secondary'" style="font-size:0.7rem;padding:0.12rem 0.4rem;min-width:65px;text-align:center;" v-text="alertsView.currentMetric().category"></span>
@@ -1650,8 +1654,8 @@ v-text="ctxEntry.level.toUpperCase()">
                       <div v-if="alertsView.metricDropdownOpen" class="dialog-select-menu" @click.stop>
                         <div class="custom-select-search-wrap">
                           <span class="custom-select-search-icon">&#x2315;</span>
-                          <input type="text" id="alert-metric-search-input" class="custom-select-search-input" v-model="alertsView.metricSearchQuery" placeholder="Search metrics (cpu, memory, disk, net, load)..." autocomplete="off" @keydown.esc="alertsView.metricDropdownOpen=false">
-                          <button v-if="alertsView.metricSearchQuery" type="button" class="custom-select-clear-btn" @click="alertsView.metricSearchQuery=''">✕</button>
+                          <input type="text" id="alert-metric-search-input" class="custom-select-search-input" v-model="alertsView.metricSearchQuery" placeholder="Search metrics (cpu, memory, disk, net, load)..." autocomplete="off" @keydown.esc.stop="alertsView.metricDropdownOpen=false">
+                          <button v-if="alertsView.metricSearchQuery" type="button" class="custom-select-clear-btn" @click="alertsView.metricSearchQuery=''">&times;</button>
                         </div>
                         <div class="custom-select-options" style="max-height:220px;">
                           <div v-if="alertsView.filteredMetrics().length === 0" class="custom-select-empty">No matching metrics found</div>
@@ -1664,160 +1668,444 @@ v-text="ctxEntry.level.toUpperCase()">
                         </div>
                       </div>
                     </div>
-                  </label>
-                  <!-- Row 2: Operator & Threshold (2-Column Grid Row) -->
-                  <div class="grid" style="margin-top:0.75rem;">
-                    <label>
-                      Operator *
-                      <select v-model="alertsView.ruleForm.metricOp" style="margin-top:0.25rem;">
-                        <option value=">">&gt; (Greater than)</option>
-                        <option value=">=">&gt;= (Greater than or equal)</option>
-                        <option value="<">&lt; (Less than)</option>
-                        <option value="<=">&lt;= (Less than or equal)</option>
-                        <option value="==">== (Equal to)</option>
+                  </div>
+
+                  <div class="wizard-section-block">
+                    <div class="wizard-section-header">
+                      <span class="wizard-section-title" v-text="alertsView.ruleForm.kind === 'metric' ? '2. Select Host or Target' : 'Select Host or Target'"></span>
+                      <small class="wizard-section-hint">Choose which host, container, or wildcard target this rule monitors.</small>
+                    </div>
+                    <div class="wizard-card-grid wizard-target-grid">
+                      <button
+                        v-if="alertsView.ruleForm.kind !== 'container'"
+                        type="button"
+                        class="wizard-choice-card"
+                        :class="{ active: alertsView.targetMode === 'host' }"
+                        @click="alertsView.selectTargetMode('host')"
+                      >
+                        <div class="wizard-card-top">
+                          <span class="wizard-card-icon">🖥️</span>
+                          <span v-if="alertsView.targetMode === 'host'" class="wizard-card-check">✓</span>
+                        </div>
+                        <strong class="wizard-card-title">Host System</strong>
+                        <small class="wizard-card-sub"><code>host</code></small>
+                      </button>
+
+                      <button
+                        type="button"
+                        class="wizard-choice-card"
+                        :class="{ active: alertsView.targetMode === 'container' }"
+                        @click="alertsView.selectTargetMode('container')"
+                      >
+                        <div class="wizard-card-top">
+                          <span class="wizard-card-icon">📦</span>
+                          <span v-if="alertsView.targetMode === 'container'" class="wizard-card-check">✓</span>
+                        </div>
+                        <strong class="wizard-card-title">Specific Container</strong>
+                        <small class="wizard-card-sub">Pick a container</small>
+                      </button>
+
+                      <button
+                        type="button"
+                        class="wizard-choice-card"
+                        :class="{ active: alertsView.targetMode === 'all_containers' }"
+                        @click="alertsView.selectTargetMode('all_containers')"
+                      >
+                        <div class="wizard-card-top">
+                          <span class="wizard-card-icon">🐳</span>
+                          <span v-if="alertsView.targetMode === 'all_containers'" class="wizard-card-check">✓</span>
+                        </div>
+                        <strong class="wizard-card-title">All Containers</strong>
+                        <small class="wizard-card-sub"><code>container:*</code></small>
+                      </button>
+
+                      <button
+                        type="button"
+                        class="wizard-choice-card"
+                        :class="{ active: alertsView.targetMode === 'custom' }"
+                        @click="alertsView.selectTargetMode('custom')"
+                      >
+                        <div class="wizard-card-top">
+                          <span class="wizard-card-icon">🎯</span>
+                          <span v-if="alertsView.targetMode === 'custom'" class="wizard-card-check">✓</span>
+                        </div>
+                        <strong class="wizard-card-title">Custom Target</strong>
+                        <small class="wizard-card-sub">Disks, wildcards, etc.</small>
+                      </button>
+                    </div>
+
+                    <!-- Specific Container Picker -->
+                    <div v-if="alertsView.targetMode === 'container'" class="wizard-subpanel">
+                      <label style="margin-bottom:0;">
+                        <small style="font-weight:600;">Choose Container</small>
+                        <select v-if="alertsView.availableContainers.length" v-model="alertsView.ruleForm.target" @change="alertsView.setTarget(alertsView.ruleForm.target)" style="margin-top:0.35rem;margin-bottom:0;">
+                          <option v-if="alertsView.ruleForm.target && !alertsView.availableContainers.includes(alertsView.ruleForm.target)" :value="alertsView.ruleForm.target" v-text="alertsView.ruleForm.target"></option>
+                          <option v-for="c in alertsView.availableContainers" :key="c" :value="c" v-text="c"></option>
+                        </select>
+                        <div v-else style="margin-top:0.35rem;">
+                          <input type="text" v-model="alertsView.ruleForm.target" @input="alertsView.syncDefaultNameIfAuto()" placeholder="Enter container name (e.g. api-server)" style="margin-bottom:0.25rem;"/>
+                          <small style="color:var(--pico-muted-color);">No running containers detected right now — enter a container name or switch to All Containers.</small>
+                        </div>
+                      </label>
+                    </div>
+
+                    <!-- Custom Target Input + Search -->
+                    <div v-if="alertsView.targetMode === 'custom'" class="wizard-subpanel">
+                      <label style="margin-bottom:0;">
+                        <small style="font-weight:600;">Target Expression</small>
+                        <div class="searchable-target-wrap dialog-select-wrap" style="margin-top:0.35rem;">
+                          <div style="display:flex;gap:0.4rem;">
+                            <input type="text" v-model="alertsView.ruleForm.target" @input="alertsView.syncDefaultNameIfAuto()" placeholder="e.g. disk:*, disk:/, *, api-*" style="margin:0;flex:1;"/>
+                            <button type="button" class="outline secondary" style="width:auto;white-space:nowrap;padding:0.25rem 0.75rem;margin:0;font-size:0.8rem;" @click="alertsView.toggleTargetDropdown()" title="Browse and search targets">
+                              <span>Browse</span>
+                              <span style="font-size:0.7rem;margin-left:0.25rem;" v-text="alertsView.targetDropdownOpen ? '▴' : '▾'"></span>
+                            </button>
+                          </div>
+                          <div v-if="alertsView.targetDropdownOpen" class="dialog-select-menu" @click.stop>
+                            <div class="custom-select-search-wrap">
+                              <span class="custom-select-search-icon">&#x2315;</span>
+                              <input type="text" id="alert-target-search-input" class="custom-select-search-input" v-model="alertsView.targetSearchQuery" placeholder="Filter targets (container, host, disk)..." autocomplete="off" @keydown.esc.stop="alertsView.targetDropdownOpen=false">
+                              <button v-if="alertsView.targetSearchQuery" type="button" class="custom-select-clear-btn" @click="alertsView.targetSearchQuery=''">&times;</button>
+                            </div>
+                            <div class="custom-select-options" style="max-height:220px;">
+                              <div v-if="alertsView.filteredTargets().length === 0" class="custom-select-empty">No matching targets found</div>
+                              <div v-for="t in alertsView.filteredTargets()" :key="t.value" class="custom-select-option" :class="{selected: alertsView.ruleForm.target === t.value}" @click="alertsView.selectTarget(t.value)" style="padding:0.45rem 0.75rem;gap:0.65rem;">
+                                <span class="badge" :class="t.badgeClass" style="font-size:0.68rem;padding:0.12rem 0.35rem;min-width:62px;text-align:center;" v-text="t.category"></span>
+                                <span style="flex:1;font-size:0.82rem;" v-text="t.label"></span>
+                                <code style="font-size:0.75rem;color:var(--pico-muted-color);" v-text="t.value"></code>
+                                <span v-if="alertsView.ruleForm.target === t.value" style="color:var(--pico-primary);font-weight:bold;margin-left:0.25rem;">✓</span>
+                              </div>
+                              <div v-if="alertsView.targetSearchQuery && !alertsView.hasExactTargetMatch()" class="custom-select-option" style="border-top:1px dashed var(--pico-muted-border-color);padding:0.45rem 0.75rem;gap:0.65rem;" @click="alertsView.selectTarget(alertsView.targetSearchQuery.trim())">
+                                <span class="badge badge-warning" style="font-size:0.68rem;padding:0.12rem 0.35rem;min-width:62px;text-align:center;">Custom</span>
+                                <span style="flex:1;font-size:0.82rem;">Set target to: <strong v-text="alertsView.targetSearchQuery.trim()"></strong></span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.5rem;align-items:center;">
+                          <small style="color:var(--pico-muted-color);">Quick presets:</small>
+                          <button type="button" class="outline secondary btn-micro" @click="alertsView.selectTarget('disk:*')">All Disks (disk:*)</button>
+                          <button type="button" class="outline secondary btn-micro" @click="alertsView.selectTarget('disk:/')">Root Disk (disk:/)</button>
+                          <button type="button" class="outline secondary btn-micro" @click="alertsView.selectTarget('*')">All Targets (*)</button>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <footer class="wizard-footer">
+                    <button type="button" class="outline secondary" @click="alertsView.closeModal()">Cancel</button>
+                    <button type="button" @click="alertsView.nextStep()">Next: Conditions &amp; Channels &rarr;</button>
+                  </footer>
+                </div>
+
+                <!-- STEP 2: CONDITIONS, SEVERITY & CHANNELS -->
+                <div v-if="alertsView.wizardStep === 2" class="wizard-step-panel">
+                  <div v-if="alertsView.ruleForm.kind === 'metric'" class="wizard-section-block">
+                    <div class="wizard-section-header">
+                      <span class="wizard-section-title">Alert Condition</span>
+                      <small class="wizard-section-hint">Define when the alert should trigger for <code v-text="alertsView.ruleForm.target"></code>.</small>
+                    </div>
+
+                    <div class="wizard-condition-sentence">
+                      <span class="wizard-sentence-text">Trigger alert when</span>
+                      <span class="badge badge-muted" style="font-size:0.8rem;padding:0.35rem 0.6rem;" v-text="alertsView.currentMetric().label"></span>
+                      <span class="wizard-sentence-text">is</span>
+                      <select v-model="alertsView.ruleForm.metricOp" @change="alertsView.syncDefaultNameIfAuto()" aria-label="Comparison operator" class="wizard-op-select">
+                        <option value="&gt;">&gt; Greater than</option>
+                        <option value="&gt;=">&gt;= At least</option>
+                        <option value="&lt;">&lt; Less than</option>
+                        <option value="&lt;=">&lt;= At most</option>
+                        <option value="==">== Equal to</option>
                       </select>
-                    </label>
-                    <label>
-                      Threshold *
-                      <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.25rem;">
-                        <input type="number" step="0.1" v-model="alertsView.ruleForm.metricThreshold" required style="margin-bottom:0;flex:1;"/>
-                        <span v-if="alertsView.getMetricUnit()" class="badge" style="font-size:0.85rem;padding:0.45rem 0.75rem;" v-text="alertsView.getMetricUnit()"></span>
+                      <div class="wizard-threshold-wrap">
+                        <input type="number" step="any" v-model="alertsView.ruleForm.metricThreshold" @input="alertsView.syncDefaultNameIfAuto()" aria-label="Threshold value" class="wizard-threshold-input" required/>
+                        <span v-if="alertsView.getMetricUnit()" class="badge wizard-unit-badge" v-text="alertsView.getMetricUnit()"></span>
                       </div>
-                    </label>
+                    </div>
                   </div>
-                </fieldset>
-                <fieldset v-if="alertsView.ruleForm.kind === 'log'" style="margin-top:1rem;">
-                  <legend>
-                    <strong>
-                      Log Condition
-                    </strong>
-                  </legend>
-                  <label>
-                    Pattern *
-                    <input type="text" v-model="alertsView.ruleForm.logPattern" placeholder="e.g. panic: runtime error" required/>
-                  </label>
-                  <div class="grid">
+
+                  <div v-if="alertsView.ruleForm.kind === 'log'" class="wizard-section-block">
+                    <div class="wizard-section-header">
+                      <span class="wizard-section-title">Log Pattern Condition</span>
+                    </div>
                     <label>
-                      <input type="checkbox" v-model="alertsView.ruleForm.logIsRegex"/>
-                      Regex
+                      Match Pattern *
+                      <input type="text" v-model="alertsView.ruleForm.logPattern" @input="alertsView.syncDefaultNameIfAuto()" placeholder="e.g. panic: runtime error"/>
                     </label>
-                    <label>
-                      Min Level
-                      <select v-model.number="alertsView.ruleForm.logMinLevel">
-                        <option :value="0">
-                          Any
-                        </option>
-                        <option :value="4">
-                          WARN
-                        </option>
-                        <option :value="5">
-                          ERROR
-                        </option>
-                      </select>
-                    </label>
-                    <label>
-                      Hits
-                      <input type="number" v-model.number="alertsView.ruleForm.logThreshold" min="1" max="1000"/>
-                    </label>
-                    <label>
-                      Window (s)
-                      <input type="number" v-model.number="alertsView.ruleForm.logWindowSec" min="10" max="3600"/>
-                    </label>
+                    <div class="grid">
+                      <label style="display:flex;align-items:center;gap:0.5rem;padding-top:1.5rem;">
+                        <input type="checkbox" v-model="alertsView.ruleForm.logIsRegex" style="margin:0;"/>
+                        <span>Use Regular Expression</span>
+                      </label>
+                      <label>
+                        Minimum Level
+                        <select v-model.number="alertsView.ruleForm.logMinLevel">
+                          <option :value="0">Any Level</option>
+                          <option :value="4">WARN+</option>
+                          <option :value="5">ERROR+</option>
+                        </select>
+                      </label>
+                      <label>
+                        Minimum Hits
+                        <input type="number" v-model.number="alertsView.ruleForm.logThreshold" @input="alertsView.syncDefaultNameIfAuto()" min="1" max="10000"/>
+                      </label>
+                      <label>
+                        Window (seconds)
+                        <input type="number" v-model.number="alertsView.ruleForm.logWindowSec" @input="alertsView.syncDefaultNameIfAuto()" min="10" max="86400"/>
+                      </label>
+                    </div>
                   </div>
-                </fieldset>
-                <fieldset v-if="alertsView.ruleForm.kind === 'container'" style="margin-top:1rem;">
-                  <legend>
-                    <strong>
-                      Container Events
-                    </strong>
-                  </legend>
-                  <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:0.5rem;">
-                    <label v-for="e in ['oom','die','restart','stop','down']" :key="e">
-                      <input type="checkbox" v-model="alertsView.ruleForm.containerEvents[e]"/>
-                      {{e.toUpperCase()}}
-                    </label>
+
+                  <div v-if="alertsView.ruleForm.kind === 'container'" class="wizard-section-block">
+                    <div class="wizard-section-header">
+                      <span class="wizard-section-title">Container Lifecycle Events</span>
+                    </div>
+                    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">
+                      <label v-for="e in ['oom','die','restart','stop','down']" :key="e" class="wizard-event-pill" :class="{ active: alertsView.ruleForm.containerEvents[e] }">
+                        <input type="checkbox" v-model="alertsView.ruleForm.containerEvents[e]" @change="alertsView.syncDefaultNameIfAuto()" style="margin:0;"/>
+                        <span v-text="e.toUpperCase()"></span>
+                      </label>
+                    </div>
+                    <div class="grid">
+                      <label>
+                        Event Hits Threshold
+                        <input type="number" v-model.number="alertsView.ruleForm.containerThreshold" min="1" max="100"/>
+                      </label>
+                      <label>
+                        Window (seconds, 0 = immediate)
+                        <input type="number" v-model.number="alertsView.ruleForm.containerWindowSec" min="0" max="86400"/>
+                      </label>
+                    </div>
                   </div>
-                  <div class="grid">
-                    <label>
-                      Hits
-                      <input type="number" v-model.number="alertsView.ruleForm.containerThreshold" min="1" max="100"/>
-                    </label>
-                    <label>
-                      Window (s)
-                      <input type="number" v-model.number="alertsView.ruleForm.containerWindowSec" min="0" max="3600"/>
-                    </label>
+
+                  <div class="wizard-section-block">
+                    <div class="wizard-section-header">
+                      <span class="wizard-section-title">Sustained Duration &amp; Cooldown</span>
+                      <small class="wizard-section-hint">Avoid false alarms by requiring the condition to persist before firing.</small>
+                    </div>
+                    <div class="duration-pill-row">
+                      <button
+                        v-for="dur in [{sec:0,label:'0s (Instant)'},{sec:30,label:'30s (Default)'},{sec:60,label:'1m'},{sec:300,label:'5m'}]"
+                        :key="dur.sec"
+                        type="button"
+                        class="duration-pill"
+                        :class="{ active: Number(alertsView.ruleForm.for_sec) === dur.sec }"
+                        @click="alertsView.ruleForm.for_sec = dur.sec; alertsView.syncDefaultNameIfAuto()"
+                        v-text="dur.label"
+                      ></button>
+                      <label class="duration-custom-input">
+                        <small>Custom (s):</small>
+                        <input type="number" v-model.number="alertsView.ruleForm.for_sec" @input="alertsView.syncDefaultNameIfAuto()" min="0" max="86400"/>
+                      </label>
+                      <label class="duration-custom-input">
+                        <small>Cooldown (s):</small>
+                        <input type="number" v-model.number="alertsView.ruleForm.cooldown_sec" min="0" max="604800"/>
+                      </label>
+                    </div>
                   </div>
-                </fieldset>
-                <div class="grid" style="margin-top:1rem;">
-                  <label>
-                    Sustained For (s)
-                    <input type="number" v-model.number="alertsView.ruleForm.for_sec" min="0" max="86400"/>
-                  </label>
-                  <label>
-                    Cooldown (s)
-                    <input type="number" v-model.number="alertsView.ruleForm.cooldown_sec" min="0" max="86400"/>
-                  </label>
+
+                  <div class="wizard-section-block">
+                    <div class="wizard-section-header">
+                      <span class="wizard-section-title">Severity Level</span>
+                    </div>
+                    <div class="severity-pill-grid">
+                      <button
+                        v-for="sev in [{val:'critical',icon:'🔴',label:'Critical',desc:'Immediate attention required'},{val:'warning',icon:'🟡',label:'Warning',desc:'Elevated resource or error state'},{val:'info',icon:'🔵',label:'Info',desc:'Informational notice'}]"
+                        :key="sev.val"
+                        type="button"
+                        class="severity-pill"
+                        :class="['sev-' + sev.val, alertsView.ruleForm.severity === sev.val ? 'active' : '']"
+                        @click="alertsView.ruleForm.severity = sev.val"
+                      >
+                        <span class="severity-pill-top">
+                          <span v-text="sev.icon"></span>
+                          <strong v-text="sev.label"></strong>
+                        </span>
+                        <small v-text="sev.desc"></small>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="wizard-section-block">
+                    <div class="wizard-section-header">
+                      <span class="wizard-section-title">Notification Channels *</span>
+                      <small class="wizard-section-hint">Select at least one channel to receive alerts.</small>
+                    </div>
+                    <div class="channel-card-grid">
+                      <label
+                        v-for="ch in [{key:'email',icon:'✉️',label:'Email'},{key:'discord',icon:'💬',label:'Discord'}]"
+                        :key="ch.key"
+                        class="channel-choice-card"
+                        :class="{ active: alertsView.ruleForm.channels[ch.key] }"
+                      >
+                        <div class="channel-card-left">
+                          <input type="checkbox" v-model="alertsView.ruleForm.channels[ch.key]" style="margin:0;"/>
+                          <span v-text="ch.icon"></span>
+                          <strong v-text="ch.label"></strong>
+                        </div>
+                        <span
+                          v-if="alertsView.channelStatus && alertsView.channelStatus[ch.key]"
+                          class="badge badge-success"
+                          style="font-size:0.65rem;padding:0.15rem 0.4rem;"
+                        >Ready</span>
+                        <span
+                          v-else
+                          class="badge badge-warning"
+                          style="font-size:0.65rem;padding:0.15rem 0.4rem;"
+                          title="Channel not configured in tarsier.yaml"
+                        >Not Configured in tarsier.yaml</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <footer class="wizard-footer">
+                    <button type="button" class="outline secondary" @click="alertsView.prevStep()">&larr; Back</button>
+                    <div style="display:flex;gap:0.5rem;">
+                      <button type="button" class="outline secondary" @click="alertsView.closeModal()">Cancel</button>
+                      <button type="button" @click="alertsView.nextStep()">Next: Review &amp; Dry Run &rarr;</button>
+                    </div>
+                  </footer>
                 </div>
-                <label style="margin-top:0.5rem;">
-                  Notification Channels *
-                </label>
-                <div style="display:flex;gap:1.5rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
-                  <label v-for="ch in ['email','discord']" :key="ch" style="display:inline-flex;align-items:center;margin:0;">
-                    <input type="checkbox" v-model="alertsView.ruleForm.channels[ch]"/>
-                    <span>{{ch.toUpperCase()}}</span>
-                    <span v-if="alertsView.channelStatus && alertsView.channelStatus[ch]" class="badge badge-success" style="font-size:0.65rem;margin-left:0.35rem;padding:0.1rem 0.35rem;">
-                      Ready
-                    </span>
-                    <span v-else class="badge badge-warning" style="font-size:0.65rem;margin-left:0.35rem;padding:0.1rem 0.35rem;" title="Channel not configured in tarsier.yaml">
-                      Not Configured
-                    </span>
-                  </label>
-                </div>
-                <div>
-                  <button type="button" class="outline secondary" :aria-busy="alertsView.previewLoading" @click="alertsView.runPreview()" style="margin:0;">
-                    Dry-Run Preview
-                  </button>
-                </div>
-                <div v-if="alertsView.previewResult" class="preview-box" :class="alertsView.previewResult?.would_fire_now ? 'preview-firing' : 'preview-clear'">
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-                    <strong>
-                      Preview Result:
-                    </strong>
-                    <span :class="'badge ' + (alertsView.previewResult?.would_fire_now ? 'badge-critical' : 'badge-success')" v-text="alertsView.previewResult?.would_fire_now ? 'WOULD FIRE NOW' : 'CONDITION SATISFIED / OK'">
-                    </span>
+
+                <!-- STEP 3: ALERT NAME, AUTO DRY RUN & REVIEW -->
+                <div v-if="alertsView.wizardStep === 3" class="wizard-step-panel">
+                  <div class="wizard-section-block">
+                    <div class="wizard-section-header">
+                      <span class="wizard-section-title">Alert Name</span>
+                      <small class="wizard-section-hint">Auto-generated from your selections. Customize it or reset to default.</small>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;align-items:center;">
+                      <input
+                        type="text"
+                        v-model="alertsView.ruleForm.name"
+                        @input="alertsView.onNameInput()"
+                        placeholder="e.g. Host CPU &gt; 85% for 30s"
+                        maxlength="120"
+                        required
+                        style="margin:0;flex:1;"
+                      />
+                      <button type="button" class="outline secondary" @click="alertsView.resetDefaultName()" style="margin:0;white-space:nowrap;width:auto;">
+                        Reset to Default
+                      </button>
+                    </div>
                   </div>
-                  <ul v-if="alertsView.previewResult?.matched_targets && alertsView.previewResult.matched_targets.length" style="margin-bottom:0.5rem;padding-left:1.25rem;">
-                    <li v-for="m in (alertsView.previewResult?.matched_targets || [])" :key="m.target" style="font-size:0.85rem;">
-                      <code v-text="m.target">
-                      </code>
-                      :
-                      <span v-text="m.summary">
-                      </span>
-                    </li>
-                  </ul>
-                  <div v-if="alertsView.previewResult?.sample_lines && alertsView.previewResult.sample_lines.length">
-                    <small>
-                      <strong v-if="alertsView.ruleForm.kind === 'log'">
-                        Recent Matching Log Lines ({{ alertsView.previewResult?.recent_matches_24h || 0 }} hits):
-                      </strong>
-                      <strong v-else style="color:var(--pico-muted-color);">
-                        Diagnostics:
-                      </strong>
-                    </small>
-                    <pre style="margin:0;font-size:0.75rem;padding:0.4rem;background:var(--pico-code-background-color);border-radius:4px;max-height:100px;overflow-y:auto;">
-                      <code v-for="line in (alertsView.previewResult?.sample_lines || [])" style="display:block;" v-text="line">
-                      </code>
-                    </pre>
+
+                  <div class="wizard-section-block">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+                      <div>
+                        <span class="wizard-section-title">Live Dry Run</span>
+                        <small class="wizard-section-hint" style="display:block;">Automatically evaluates current telemetry (60s timeout).</small>
+                      </div>
+                      <button type="button" class="outline secondary" :disabled="alertsView.previewLoading" @click="alertsView.runPreview()" style="margin:0;width:auto;padding:0.3rem 0.75rem;font-size:0.82rem;">
+                        Re-run Dry Run
+                      </button>
+                    </div>
+
+                    <!-- Loading State -->
+                    <div v-if="alertsView.previewLoading" class="preview-box preview-loading">
+                      <div style="display:flex;align-items:center;gap:0.75rem;">
+                        <span class="wizard-spinner" aria-hidden="true"></span>
+                        <div>
+                          <strong>Running live dry-run evaluation...</strong>
+                          <small style="display:block;color:var(--pico-muted-color);">Checking live telemetry and matching targets (timeout: 60s)</small>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Timeout or Error State -->
+                    <div v-else-if="alertsView.previewError" class="preview-box preview-error" role="alert">
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
+                        <strong>Dry-Run Result:</strong>
+                        <span class="badge badge-critical" v-text="alertsView.previewTimedOut ? 'TIMED OUT (60s)' : 'EVALUATION ERROR'"></span>
+                      </div>
+                      <p style="margin:0;font-size:0.88rem;" v-text="alertsView.previewError"></p>
+                    </div>
+
+                    <!-- Completed Dry-Run Result -->
+                    <div
+                      v-else-if="alertsView.previewResult"
+                      class="preview-box"
+                      :class="alertsView.previewResult.would_fire_now ? 'preview-firing' : (alertsView.isNoTelemetryPreview() ? 'preview-info' : 'preview-clear')"
+                    >
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
+                        <strong>Dry-Run Result:</strong>
+                        <span v-if="alertsView.previewResult.would_fire_now" class="badge badge-critical">&#9888;&#65039; WOULD FIRE NOW</span>
+                        <span v-else-if="alertsView.isNoTelemetryPreview()" class="badge badge-info">&#8505;&#65039; NO RECENT TELEMETRY</span>
+                        <span v-else class="badge badge-success">&#9989; CONDITION SATISFIED / OK</span>
+                      </div>
+
+                      <ul v-if="alertsView.previewResult.matched_targets && alertsView.previewResult.matched_targets.length" style="margin-bottom:0.5rem;padding-left:1.25rem;">
+                        <li v-for="m in alertsView.previewResult.matched_targets" :key="m.target" style="font-size:0.85rem;">
+                          <code v-text="m.target"></code>:
+                          <span v-text="m.summary || m.value"></span>
+                        </li>
+                      </ul>
+
+                      <p v-else-if="alertsView.isNoTelemetryPreview()" style="margin:0 0 0.4rem 0;font-size:0.85rem;color:var(--pico-muted-color);">
+                        No active telemetry received in the last 120s for this target and metric.
+                      </p>
+
+                      <p v-else-if="!alertsView.previewResult.would_fire_now && alertsView.ruleForm.kind === 'metric'" style="margin:0;font-size:0.85rem;color:var(--pico-muted-color);">
+                        Live telemetry for <code v-text="alertsView.ruleForm.target"></code> is currently within the configured threshold.
+                      </p>
+
+                      <p v-else-if="!alertsView.previewResult.would_fire_now && alertsView.ruleForm.kind !== 'metric'" style="margin:0 0 0.4rem 0;font-size:0.85rem;color:var(--pico-muted-color);">
+                        Recent matches (last 24h / tail): <strong v-text="alertsView.previewResult.recent_matches_24h || 0"></strong> (below trigger threshold).
+                      </p>
+
+                      <div v-if="alertsView.previewResult.sample_lines && alertsView.previewResult.sample_lines.length" style="margin-top:0.5rem;">
+                        <small>
+                          <strong v-if="alertsView.ruleForm.kind === 'log'">
+                            Recent Matching Log Lines ({{ alertsView.previewResult.recent_matches_24h || 0 }} hits):
+                          </strong>
+                          <strong v-else style="color:var(--pico-muted-color);">Diagnostics:</strong>
+                        </small>
+                        <pre style="margin:0.25rem 0 0 0;font-size:0.75rem;padding:0.45rem;background:var(--pico-code-background-color);border-radius:4px;max-height:110px;overflow-y:auto;"><code v-for="(line, lIdx) in alertsView.previewResult.sample_lines" :key="lIdx" style="display:block;" v-text="line"></code></pre>
+                      </div>
+                    </div>
                   </div>
+
+                  <div class="wizard-section-block">
+                    <div class="wizard-section-header">
+                      <span class="wizard-section-title">Rule Summary</span>
+                    </div>
+                    <div class="rule-summary-card">
+                      <div class="summary-kv">
+                        <span class="summary-k">Target</span>
+                        <span class="summary-v"><code v-text="alertsView.ruleForm.target"></code></span>
+                      </div>
+                      <div class="summary-kv">
+                        <span class="summary-k">Condition</span>
+                        <span class="summary-v" v-text="alertsView.conditionSummaryText()"></span>
+                      </div>
+                      <div class="summary-kv">
+                        <span class="summary-k">Duration</span>
+                        <span class="summary-v">
+                          <span v-text="alertsView.formatDuration(alertsView.ruleForm.for_sec)"></span>
+                          <small style="color:var(--pico-muted-color);" v-text="' (Cooldown: ' + alertsView.formatDuration(alertsView.ruleForm.cooldown_sec) + ')'"></small>
+                        </span>
+                      </div>
+                      <div class="summary-kv">
+                        <span class="summary-k">Severity</span>
+                        <span class="summary-v">
+                          <span :class="'badge badge-' + alertsView.ruleForm.severity" v-text="alertsView.ruleForm.severity"></span>
+                        </span>
+                      </div>
+                      <div class="summary-kv">
+                        <span class="summary-k">Channels</span>
+                        <span class="summary-v" v-text="alertsView.selectedChannels().map(c => c.toUpperCase()).join(', ') || 'None'"></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <footer class="wizard-footer">
+                    <button type="button" class="outline secondary" @click="alertsView.prevStep()">&larr; Back</button>
+                    <div style="display:flex;gap:0.5rem;">
+                      <button type="button" class="outline secondary" @click="alertsView.closeModal()">Cancel</button>
+                      <button type="submit" :aria-busy="alertsView.modalLoading" v-text="alertsView.isEditing ? 'Save Changes' : 'Create Rule'"></button>
+                    </div>
+                  </footer>
                 </div>
-                <footer style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1.5rem;">
-                  <button type="button" class="outline secondary" @click="alertsView.closeModal()" style="margin:0;">
-                    Cancel
-                  </button>
-                  <button type="submit" :aria-busy="alertsView.modalLoading" style="margin:0;">
-                    {{ alertsView.isEditing ? 'Save Changes' : 'Create Rule' }}
-                  </button>
-                </footer>
               </form>
             </article>
           </dialog>
