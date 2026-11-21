@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -323,10 +324,27 @@ func TestAlertsAPI_TemplatesAndPreview(t *testing.T) {
 	}
 
 	// 3. Log preview with tail cache
+	var sourceID int64
+	err := store.Config.ExecWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		res, execErr := tx.ExecContext(ctx, `
+			INSERT INTO source (kind, name, host_id, first_seen, last_seen)
+			VALUES ('container', 'app-1', 1, ?, ?);
+		`, now.Unix(), now.Unix())
+		if execErr != nil {
+			return execErr
+		}
+		var idErr error
+		sourceID, idErr = res.LastInsertId()
+		return idErr
+	})
+	if err != nil {
+		t.Fatalf("seed source failed: %v", err)
+	}
+
 	tailCache := logs.NewTailCache(5, 100)
 	srv.tailCache = tailCache
 	tailCache.Push(model.LogEntry{
-		SourceID:  "app-1",
+		SourceID:  fmt.Sprintf("%d", sourceID),
 		Timestamp: now,
 		Level:     model.LevelError,
 		Message:   []byte("connection refused to db"),

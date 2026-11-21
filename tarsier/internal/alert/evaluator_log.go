@@ -205,34 +205,40 @@ func (e *LogEvaluator) ProcessEntry(ctx context.Context, entry model.LogEntry) {
 		e.mu.Unlock()
 
 		if shouldFire && !wasBreached {
-			summary := fmt.Sprintf("source %s matched pattern %q %d times in %ds",
-				sourceName, cond.Pattern, validCount, cond.WindowSec)
-
-			details := map[string]string{
-				"source":    sourceName,
-				"pattern":   cond.Pattern,
-				"matches":   strconv.Itoa(validCount),
-				"threshold": strconv.Itoa(cond.Threshold),
-				"window":    fmt.Sprintf("%ds", cond.WindowSec),
-			}
-			for i, s := range samplesCopy {
-				details[fmt.Sprintf("sample_%d", i+1)] = s
-			}
-
-			e.sink.Observe(ctx, EvalObservation{
-				Rule:     rule,
-				Target:   sourceName,
-				Breached: true,
-				Value:    float64(validCount),
-				Summary:  summary,
-				Details:  details,
-				At:       evTime,
-			})
+			e.sink.Observe(ctx, buildLogBreachObservation(rule, sourceName, validCount, samplesCopy, evTime))
 		}
 	}
 }
 
-// SweepWindows scans tracked sliding-window states, evicts expired hits, and emits recovery observations.
+func buildLogBreachObservation(rule *CompiledRule, sourceName string, validCount int, samples []string, at time.Time) EvalObservation {
+	cond := rule.LogCond
+	summary := fmt.Sprintf("source %s matched pattern %q %d times in %ds",
+		sourceName, cond.Pattern, validCount, cond.WindowSec)
+
+	details := map[string]string{
+		"source":    sourceName,
+		"pattern":   cond.Pattern,
+		"matches":   strconv.Itoa(validCount),
+		"threshold": strconv.Itoa(cond.Threshold),
+		"window":    fmt.Sprintf("%ds", cond.WindowSec),
+	}
+	for i, s := range samples {
+		details[fmt.Sprintf("sample_%d", i+1)] = s
+	}
+
+	return EvalObservation{
+		Rule:     rule,
+		Target:   sourceName,
+		Breached: true,
+		Value:    float64(validCount),
+		Summary:  summary,
+		Details:  details,
+		At:       at,
+	}
+}
+
+// SweepWindows scans tracked sliding-window states, evicts expired hits,
+// emits ongoing breach observations for sustained duration tracking, and emits recovery observations.
 func (e *LogEvaluator) SweepWindows(ctx context.Context) {
 	if e.cache == nil || e.sink == nil {
 		return
@@ -246,9 +252,9 @@ func (e *LogEvaluator) SweepWindows(ctx context.Context) {
 	nowSec := e.clock.Now().UTC().Unix()
 	nowTime := time.Unix(nowSec, 0).UTC()
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	var observations []EvalObservation
 
+	e.mu.Lock()
 	for key, st := range e.windows {
 		rule := snap.ByID[key.ruleID]
 		if rule == nil || !rule.Enabled || rule.LogCond == nil {
@@ -268,11 +274,15 @@ func (e *LogEvaluator) SweepWindows(ctx context.Context) {
 		}
 		st.hits = pruned
 
-		if st.breached && validCount < cond.Threshold {
+		if st.breached && validCount >= cond.Threshold {
+			samplesCopy := make([]string, len(st.sampleLines))
+			copy(samplesCopy, st.sampleLines)
+			observations = append(observations, buildLogBreachObservation(rule, key.sourceName, validCount, samplesCopy, nowTime))
+		} else if st.breached && validCount < cond.Threshold {
 			st.breached = false
 			st.sampleLines = nil
 
-			e.sink.Observe(ctx, EvalObservation{
+			observations = append(observations, EvalObservation{
 				Rule:     rule,
 				Target:   key.sourceName,
 				Breached: false,
@@ -292,6 +302,11 @@ func (e *LogEvaluator) SweepWindows(ctx context.Context) {
 		if len(st.hits) == 0 && !st.breached {
 			delete(e.windows, key)
 		}
+	}
+	e.mu.Unlock()
+
+	for _, obs := range observations {
+		e.sink.Observe(ctx, obs)
 	}
 }
 

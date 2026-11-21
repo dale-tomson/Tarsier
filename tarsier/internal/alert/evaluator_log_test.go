@@ -296,3 +296,115 @@ func TestLogEvaluator_NonBlockingEnqueue(t *testing.T) {
 		t.Errorf("expected dropped count > 0 after queue overflow")
 	}
 }
+
+func TestLogEvaluator_SustainedDurationTransition(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbStore, err := db.Open(context.Background(), tmpDir)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer dbStore.Close()
+
+	ruleStore := NewRuleStore(dbStore.Config)
+	ctx := context.Background()
+
+	// Rule with threshold 3 in 60s window and sustained duration ForSec = 30s
+	r, err := ruleStore.CreateRule(ctx, AlertRule{
+		Name:          "Sustained Error Burst",
+		Kind:          "log",
+		Enabled:       true,
+		Severity:      "critical",
+		Target:        "container:api",
+		ConditionJSON: `{"pattern":"error","is_regex":false,"ignore_case":true,"threshold":3,"window_sec":60}`,
+		ForSec:        30,
+		CooldownSec:   300,
+		Channels:      []string{"discord"},
+	})
+	if err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+
+	ruleCache := NewRuleCache(ruleStore)
+	if err := ruleCache.Reload(ctx); err != nil {
+		t.Fatalf("reload ruleCache: %v", err)
+	}
+
+	t0 := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	clock := newFakeClock(t0)
+	disp := &mockDispatcher{}
+	sm := NewStateMachine(ruleCache, ruleStore, dbStore.Config, disp, clock)
+	resolver := SourceResolverFunc(func(sourceID string) string {
+		if sourceID == "1" {
+			return "container:api"
+		}
+		return sourceID
+	})
+
+	evaluator := NewLogEvaluator(ruleCache, resolver, sm, clock)
+
+	// t=0s: 3 matching entries arrive -> threshold breached, StateMachine enters StatePending
+	for i := 0; i < 3; i++ {
+		evaluator.ProcessEntry(ctx, model.LogEntry{
+			SourceID:  "1",
+			Level:     model.LevelError,
+			Message:   []byte(fmt.Sprintf("ERROR: failure #%d", i+1)),
+			Timestamp: t0,
+		})
+	}
+
+	states := sm.AllStates()
+	if len(states) != 1 || states[0].State != StatePending {
+		t.Fatalf("expected 1 StatePending after initial breach, got %+v", states)
+	}
+	if len(disp.Notifications()) != 0 {
+		t.Fatalf("expected 0 notifications while pending, got %d", len(disp.Notifications()))
+	}
+
+	// t=10s: SweepWindows -> still < 30s elapsed, remains StatePending
+	clock.Advance(10 * time.Second)
+	evaluator.SweepWindows(ctx)
+
+	states = sm.AllStates()
+	if len(states) != 1 || states[0].State != StatePending {
+		t.Fatalf("expected StatePending at t=10s, got %+v", states)
+	}
+	if len(disp.Notifications()) != 0 {
+		t.Fatalf("expected 0 notifications at t=10s, got %d", len(disp.Notifications()))
+	}
+
+	// t=20s: SweepWindows -> still < 30s elapsed, remains StatePending
+	clock.Advance(10 * time.Second)
+	evaluator.SweepWindows(ctx)
+
+	states = sm.AllStates()
+	if len(states) != 1 || states[0].State != StatePending {
+		t.Fatalf("expected StatePending at t=20s, got %+v", states)
+	}
+	if len(disp.Notifications()) != 0 {
+		t.Fatalf("expected 0 notifications at t=20s, got %d", len(disp.Notifications()))
+	}
+
+	// t=30s: SweepWindows -> 30s elapsed (>= ForSec), transitions StatePending -> StateFiring
+	clock.Advance(10 * time.Second)
+	evaluator.SweepWindows(ctx)
+
+	states = sm.AllStates()
+	if len(states) != 1 || states[0].State != StateFiring {
+		t.Fatalf("expected StateFiring at t=30s, got %+v", states)
+	}
+	notifs := disp.Notifications()
+	if len(notifs) != 1 {
+		t.Fatalf("expected 1 firing notification at t=30s, got %d", len(notifs))
+	}
+	if notifs[0].Rule != r.Name || notifs[0].Target != "container:api" || notifs[0].State != "firing" {
+		t.Errorf("unexpected notification payload: %+v", notifs[0])
+	}
+
+	// t=100s: Window hits aged out (>60s) -> SweepWindows transitions StateFiring -> StateOK
+	clock.Advance(70 * time.Second)
+	evaluator.SweepWindows(ctx)
+
+	if len(sm.AllStates()) != 0 {
+		t.Fatalf("expected StateOK (0 active states) after window expiry, got %+v", sm.AllStates())
+	}
+}

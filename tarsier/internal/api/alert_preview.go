@@ -168,15 +168,32 @@ func (s *Server) previewMetricRule(resp *RulePreviewResponse, compiled *alert.Co
 }
 
 func (s *Server) previewLogRule(resp *RulePreviewResponse, compiled *alert.CompiledRule) {
-	if s.tailCache == nil || compiled.LogCond == nil {
+	if s.tailCache == nil || compiled.LogCond == nil || s.configDB == nil {
 		return
 	}
 
 	cond := compiled.LogCond
 	totalMatches := 0
+	nowNano := time.Now().UTC().UnixNano()
+	windowCutoffNano := nowNano - int64(cond.WindowSec)*int64(time.Second)
 
-	for _, sid := range s.tailCache.SourceIDs() {
+	sids := s.tailCache.SourceIDs()
+	sort.Slice(sids, func(i, j int) bool { return sids[i] < sids[j] })
+
+	for _, sid := range sids {
+		// Resolve source target identity from config.db
+		var kind, name string
+		err := s.configDB.RO.QueryRow("SELECT kind, name FROM source WHERE id = ?", sid).Scan(&kind, &name)
+		if err != nil {
+			continue
+		}
+		targetName := kind + ":" + name
+		if !compiled.MatchesTarget(targetName) && !compiled.MatchesTarget(name) {
+			continue
+		}
+
 		res := s.tailCache.QueryTail(logs.TailQuery{SourceID: sid, Limit: 200})
+		windowHits := 0
 		for _, entry := range res.Entries {
 			if cond.MinLevel > 0 && uint8(entry.Level) < cond.MinLevel {
 				continue
@@ -191,14 +208,28 @@ func (s *Server) previewLogRule(resp *RulePreviewResponse, compiled *alert.Compi
 					}
 					resp.SampleLines = append(resp.SampleLines, lineStr)
 				}
+				if entry.TS >= windowCutoffNano {
+					windowHits++
+				}
 			}
+		}
+
+		if windowHits >= cond.Threshold {
+			resp.WouldFireNow = true
+			summary := fmt.Sprintf("%s matched %q %d times in last %ds (threshold: %d)",
+				targetName, cond.Pattern, windowHits, cond.WindowSec, cond.Threshold)
+			if compiled.ForSec > 0 {
+				summary += fmt.Sprintf("; requires %s sustained", alert.FormatDuration(compiled.ForSec))
+			}
+			resp.MatchedTargets = append(resp.MatchedTargets, MatchedTarget{
+				Target:  targetName,
+				Value:   float64(windowHits),
+				Summary: summary,
+			})
 		}
 	}
 
 	resp.RecentMatches24h = totalMatches
-	if totalMatches >= cond.Threshold {
-		resp.WouldFireNow = true
-	}
 }
 
 func (s *Server) previewContainerRule(ctx context.Context, resp *RulePreviewResponse, compiled *alert.CompiledRule) {

@@ -1881,7 +1881,8 @@ v-text="ctxEntry.level.toUpperCase()">
                   <div class="wizard-section-block">
                     <div class="wizard-section-header">
                       <span class="wizard-section-title">Sustained Duration &amp; Cooldown</span>
-                      <small class="wizard-section-hint">Avoid false alarms by requiring the condition to persist before firing.</small>
+                      <small class="wizard-section-hint" v-if="alertsView.ruleForm.kind === 'log'">Log rules already evaluate a sliding rate window; use 0s (Instant) to fire immediately upon threshold breach, or set a duration to require the breach to persist.</small>
+                      <small class="wizard-section-hint" v-else>Avoid false alarms by requiring the condition to persist before firing.</small>
                     </div>
                     <div class="duration-pill-row">
                       <button
