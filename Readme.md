@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="#beta-notice"><img src="https://img.shields.io/badge/status-beta-orange.svg" alt="Status: Beta"></a>
+  <a href="#beta-notice"><img src="https://img.shields.io/badge/release-v0.2.0--beta-orange.svg" alt="Release: v0.2.0-beta"></a>
   <a href="https://golang.org"><img src="https://img.shields.io/badge/go-1.27-blue.svg" alt="Go Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
   <a href="#architectural-principles"><img src="https://img.shields.io/badge/cgo-disabled-success.svg" alt="Zero CGO"></a>
@@ -22,10 +22,10 @@
 
 <a name="beta-notice"></a>
 > [!WARNING]
-> ### BETA SOFTWARE — NOT READY FOR PRODUCTION USE
-> **Tarsier is currently in active Beta status.** Core architectural systems and functional modules are implemented and tested, but breaking changes to configuration schemas, REST API contracts, and on-disk storage layouts may occur before a stable `v1.0.0` release.
+> ### BETA TEST SOFTWARE
+> **Tarsier is currently in active Beta testing.** Core architectural systems and functional modules are implemented and tested, but breaking changes to configuration schemas, REST API contracts, and on-disk storage layouts may occur before a stable `v1.0.0` release.
 > 
-> **Do not deploy Tarsier as your sole or critical production monitoring system.** Experimental deployments and feedback on VPS/homelab single-node environments are welcome.
+> Experimental deployments and feedback on VPS/homelab single-node environments are welcome.
 
 ---
 
