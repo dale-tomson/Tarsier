@@ -738,6 +738,13 @@
         );
       },
 
+      previewBoxClass() {
+        if (!this.previewResult) return 'preview-clear';
+        if (this.previewResult.would_fire_now) return 'preview-firing';
+        if (this.isNoTelemetryPreview()) return 'preview-info';
+        return 'preview-clear';
+      },
+
       openCreateModal() {
         abortInflightPreview();
         this.isEditing = false;
