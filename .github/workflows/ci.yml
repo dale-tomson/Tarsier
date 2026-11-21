@@ -4,9 +4,21 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'tarsier/**'
+      - 'docs/openapi.yaml'
+      - 'Dockerfile'
+      - 'Makefile'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches:
       - main
+    paths:
+      - 'tarsier/**'
+      - 'docs/openapi.yaml'
+      - 'Dockerfile'
+      - 'Makefile'
+      - '.github/workflows/ci.yml'
 
 concurrency:
   group: ci-${{ github.ref }}
