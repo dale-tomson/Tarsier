@@ -35,131 +35,6 @@
       .replace(/'/g, '&#39;');
   }
 
-  function parseInlineMarkdown(text) {
-    // Inline code: `code`
-    text = text.replace(/`([^`]+)`/g, function(_, code) {
-      return '<code>' + code + '</code>';
-    });
-    // Bold: **text**
-    text = text.replace(/\*\*([^*]+)\*\*/g, function(_, bold) {
-      return '<strong>' + bold + '</strong>';
-    });
-    // Italic: *text*
-    text = text.replace(/(^|[^*])\*([^*]+)\*/g, function(_, p, italic) {
-      return p + '<em>' + italic + '</em>';
-    });
-    return text;
-  }
-
-  function markdownToHTML(md) {
-    if (!md) return '';
-    const lines = md.split(/\r?\n/);
-    const out = [];
-    let inTable = false;
-    let inList = false;
-
-    function closeList() {
-      if (inList) {
-        out.push('</ul>');
-        inList = false;
-      }
-    }
-
-    function closeTable() {
-      if (inTable) {
-        out.push('</tbody></table>');
-        inTable = false;
-      }
-    }
-
-    for (let i = 0; i < lines.length; i++) {
-      const rawLine = lines[i];
-      const trimmed = rawLine.trim();
-
-      // Check table line: starts and ends with |
-      if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
-        closeList();
-        const cells = trimmed
-          .slice(1, -1)
-          .split('|')
-          .map(function(c) { return escapeHTML(c.trim()); });
-
-        // Check if it's a separator line: e.g. |---|---|
-        const isSep = cells.every(function(c) { return /^:?-+:?$/.test(c); });
-        if (isSep) {
-          continue;
-        }
-
-        if (!inTable) {
-          inTable = true;
-          out.push('<table><thead><tr>');
-          for (let j = 0; j < cells.length; j++) {
-            out.push('<th>' + parseInlineMarkdown(cells[j]) + '</th>');
-          }
-          out.push('</tr></thead><tbody>');
-        } else {
-          out.push('<tr>');
-          for (let j = 0; j < cells.length; j++) {
-            out.push('<td>' + parseInlineMarkdown(cells[j]) + '</td>');
-          }
-          out.push('</tr>');
-        }
-        continue;
-      } else {
-        closeTable();
-      }
-
-      // Bullet lists: - item or * item
-      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-        if (!inList) {
-          inList = true;
-          out.push('<ul>');
-        }
-        const itemText = escapeHTML(trimmed.slice(2));
-        out.push('<li>' + parseInlineMarkdown(itemText) + '</li>');
-        continue;
-      } else {
-        closeList();
-      }
-
-      if (!trimmed) {
-        continue;
-      }
-
-      // Headings
-      if (trimmed.startsWith('#### ')) {
-        out.push('<h4>' + parseInlineMarkdown(escapeHTML(trimmed.slice(5))) + '</h4>');
-        continue;
-      }
-      if (trimmed.startsWith('### ')) {
-        out.push('<h3>' + parseInlineMarkdown(escapeHTML(trimmed.slice(4))) + '</h3>');
-        continue;
-      }
-      if (trimmed.startsWith('## ')) {
-        out.push('<h2>' + parseInlineMarkdown(escapeHTML(trimmed.slice(3))) + '</h2>');
-        continue;
-      }
-      if (trimmed.startsWith('# ')) {
-        out.push('<h1>' + parseInlineMarkdown(escapeHTML(trimmed.slice(2))) + '</h1>');
-        continue;
-      }
-
-      // Blockquote: > text
-      if (trimmed.startsWith('> ')) {
-        out.push('<blockquote>' + parseInlineMarkdown(escapeHTML(trimmed.slice(2))) + '</blockquote>');
-        continue;
-      }
-
-      // Normal paragraph
-      out.push('<p>' + parseInlineMarkdown(escapeHTML(trimmed)) + '</p>');
-    }
-
-    closeList();
-    closeTable();
-
-    return out.join('\n');
-  }
-
   function wrapInReportDocument(bodyHTML) {
     return '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n<style>\n' +
       'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 16px; color: #24292f; background: #fff; line-height: 1.5; font-size: 13px; margin: 0; }\n' +
@@ -199,7 +74,7 @@
 
       // Custom Template Preview Modal
       templateModalOpen: false,
-      templateFormat: 'markdown',
+      templateFormat: 'text',
       templateInput: '',
       templatePreview: '',
       templateLoading: false,
@@ -215,7 +90,7 @@
         if (body.startsWith('<!DOCTYPE') || body.startsWith('<html') || this.selectedReport.report_format === 'html') {
           return body;
         }
-        return wrapInReportDocument(markdownToHTML(body));
+        return wrapInReportDocument('<pre style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; white-space:pre-wrap; margin:0; line-height:1.4;">' + escapeHTML(body) + '</pre>');
       },
 
       toggleReportViewMode() {
@@ -228,7 +103,7 @@
         if (body.startsWith('<!DOCTYPE') || body.startsWith('<html') || this.templateFormat === 'html') {
           return body;
         }
-        return wrapInReportDocument(markdownToHTML(body));
+        return wrapInReportDocument('<pre style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; white-space:pre-wrap; margin:0; line-height:1.4;">' + escapeHTML(body) + '</pre>');
       },
 
       toggleTemplatePreviewMode() {
@@ -354,7 +229,7 @@
 
       openTemplateModal() {
         this.templateModalOpen = true;
-        this.templateFormat = 'markdown';
+        this.templateFormat = 'text';
         this.templateInput = '';
         this.templatePreview = '';
         this.templateError = '';

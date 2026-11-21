@@ -243,7 +243,7 @@ func (s *Server) handleCleanupReport(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(resp.ReportBody, "<html") || strings.HasPrefix(strings.TrimSpace(resp.ReportBody), "<!DOCTYPE") {
 		resp.ReportFormat = "html"
 	} else {
-		resp.ReportFormat = "markdown"
+		resp.ReportFormat = "text"
 	}
 
 	auth.WriteJSON(w, http.StatusOK, resp)
@@ -284,9 +284,9 @@ func (s *Server) handleCleanupTemplateDownload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="tarsier-report-default.md"`)
-	_, _ = w.Write([]byte(cleanup.DefaultMarkdownTemplate))
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="tarsier-report-default.txt"`)
+	_, _ = w.Write([]byte(cleanup.DefaultTextTemplate))
 }
 
 func (s *Server) handleCleanupPreview(w http.ResponseWriter, r *http.Request) {
@@ -298,7 +298,7 @@ func (s *Server) handleCleanupPreview(w http.ResponseWriter, r *http.Request) {
 
 	format := strings.ToLower(req.Format)
 	if format == "" {
-		format = "markdown"
+		format = "text"
 	}
 
 	// Validate template candidate
@@ -348,9 +348,9 @@ func (s *Server) handleCleanupPreview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		tmpl, err := texttmpl.New("preview_md").Funcs(funcMap).Parse(req.Template)
+		tmpl, err := texttmpl.New("preview_text").Funcs(funcMap).Parse(req.Template)
 		if err != nil {
-			auth.WriteJSONError(w, http.StatusBadRequest, "template_syntax_error", fmt.Sprintf("markdown template syntax error: %v", err))
+			auth.WriteJSONError(w, http.StatusBadRequest, "template_syntax_error", fmt.Sprintf("text template syntax error: %v", err))
 			return
 		}
 		if err := tmpl.Execute(&buf, report); err != nil {

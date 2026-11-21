@@ -245,8 +245,8 @@ func Validate(c *Config) error {
 		errs = append(errs, fmt.Sprintf("cleanup.report.on_failure must be 'proceed' or 'block', got %q", c.Cleanup.Report.OnFailure))
 	}
 	fmtLower := strings.ToLower(strings.TrimSpace(c.Cleanup.Report.Format))
-	if fmtLower != "markdown" && fmtLower != "html" {
-		errs = append(errs, fmt.Sprintf("cleanup.report.format must be 'markdown' or 'html', got %q", c.Cleanup.Report.Format))
+	if fmtLower != "text" && fmtLower != "html" {
+		errs = append(errs, fmt.Sprintf("cleanup.report.format must be 'text' or 'html', got %q", c.Cleanup.Report.Format))
 	}
 	if _, err := ParseBytes(c.Cleanup.Report.MaxAttachment); err != nil {
 		errs = append(errs, fmt.Sprintf("cleanup.report.max_attachment invalid: %v", err))

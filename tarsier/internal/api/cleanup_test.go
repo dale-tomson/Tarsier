@@ -225,8 +225,8 @@ func TestCleanupAPI_HistoryAndStoredReportRetrieval(t *testing.T) {
 	if reportResp.ReportBody != "# Test Report Body" {
 		t.Errorf("unexpected report body: %q", reportResp.ReportBody)
 	}
-	if reportResp.ReportFormat != "markdown" {
-		t.Errorf("expected format markdown, got %s", reportResp.ReportFormat)
+	if reportResp.ReportFormat != "text" {
+		t.Errorf("expected format text, got %s", reportResp.ReportFormat)
 	}
 
 	// 3. GET /api/v1/system/cleanup/99999/report -> 404
@@ -243,17 +243,20 @@ func TestCleanupAPI_HistoryAndStoredReportRetrieval(t *testing.T) {
 func TestCleanupAPI_TemplateDownloadAndCustomPreview(t *testing.T) {
 	srv, _, cookie, _, _, _ := setupCleanupTestServer(t)
 
-	// 1. Download Markdown template
-	reqMD := httptest.NewRequest(http.MethodGet, "/api/v1/system/cleanup/template?format=markdown", nil)
-	reqMD.AddCookie(cookie)
-	recMD := httptest.NewRecorder()
+	// 1. Download Text template
+	reqText := httptest.NewRequest(http.MethodGet, "/api/v1/system/cleanup/template?format=text", nil)
+	reqText.AddCookie(cookie)
+	recText := httptest.NewRecorder()
 
-	srv.Router().ServeHTTP(recMD, reqMD)
-	if recMD.Code != http.StatusOK {
-		t.Fatalf("download md: expected 200, got %d", recMD.Code)
+	srv.Router().ServeHTTP(recText, reqText)
+	if recText.Code != http.StatusOK {
+		t.Fatalf("download text: expected 200, got %d", recText.Code)
 	}
-	if !bytes.Contains(recMD.Body.Bytes(), []byte("Tarsier Pre-Cleanup Report")) {
-		t.Errorf("expected default markdown content, got: %s", recMD.Body.String())
+	if ct := recText.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+		t.Errorf("expected text/plain; charset=utf-8, got %q", ct)
+	}
+	if !bytes.Contains(recText.Body.Bytes(), []byte("Tarsier Pre-Cleanup Report")) {
+		t.Errorf("expected default text content, got: %s", recText.Body.String())
 	}
 
 	// 2. Download HTML template
@@ -270,7 +273,7 @@ func TestCleanupAPI_TemplateDownloadAndCustomPreview(t *testing.T) {
 	}
 
 	// 3. Live Preview valid custom template
-	bodyJSON := []byte(`{"format":"markdown","template":"Purged count: {{ .TotalLogsPurged }} lines"}`)
+	bodyJSON := []byte(`{"format":"text","template":"Purged count: {{ .TotalLogsPurged }} lines"}`)
 	reqPrev := httptest.NewRequest(http.MethodPost, "/api/v1/system/cleanup/preview", bytes.NewReader(bodyJSON))
 	reqPrev.AddCookie(cookie)
 	recPrev := httptest.NewRecorder()
@@ -287,7 +290,7 @@ func TestCleanupAPI_TemplateDownloadAndCustomPreview(t *testing.T) {
 	}
 
 	// 4. Live Preview invalid syntax template -> 400
-	badJSON := []byte(`{"format":"markdown","template":"Broken template {{ .TotalLogsPurged "}`)
+	badJSON := []byte(`{"format":"text","template":"Broken template {{ .TotalLogsPurged "}`)
 	reqBad := httptest.NewRequest(http.MethodPost, "/api/v1/system/cleanup/preview", bytes.NewReader(badJSON))
 	reqBad.AddCookie(cookie)
 	recBad := httptest.NewRecorder()

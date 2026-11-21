@@ -370,7 +370,14 @@ func TestValidateConfig(t *testing.T) {
 			modify: func(c *Config) {
 				c.Cleanup.Report.Format = "json"
 			},
-			expectErr: "cleanup.report.format must be 'markdown' or 'html'",
+			expectErr: "cleanup.report.format must be 'text' or 'html'",
+		},
+		{
+			name: "cleanup report markdown format rejected",
+			modify: func(c *Config) {
+				c.Cleanup.Report.Format = "markdown"
+			},
+			expectErr: "cleanup.report.format must be 'text' or 'html'",
 		},
 		{
 			name: "heartbeat enabled without url",
@@ -570,6 +577,9 @@ func TestApplyDefaultsAllBranches(t *testing.T) {
 	}
 	if c.Cleanup.Schedule != "0 3 * * *" {
 		t.Errorf("expected '0 3 * * *', got %s", c.Cleanup.Schedule)
+	}
+	if c.Cleanup.Report.Format != "text" {
+		t.Errorf("expected cleanup report format 'text', got %s", c.Cleanup.Report.Format)
 	}
 	if c.Cache.MaxSources != 500 {
 		t.Errorf("expected 500, got %d", c.Cache.MaxSources)

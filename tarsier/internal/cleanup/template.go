@@ -10,55 +10,65 @@ import (
 	"unicode/utf8"
 )
 
-// DefaultMarkdownTemplate is the built-in Go text/template used for Discord and plain-text digests.
-const DefaultMarkdownTemplate = `# Tarsier Pre-Cleanup Report
-**Generated:** {{ .GeneratedAt.Format "2006-01-02 15:04:05 UTC" }}
-**Mode:** {{ if .DryRun }}DRY RUN (Preview Only){{ else }}LIVE EXECUTION{{ end }}
-**Window:** {{ .WindowStart.Format "2006-01-02 15:04:05" }} - {{ .WindowEnd.Format "2006-01-02 15:04:05 UTC" }}
+// DefaultTextTemplate is the built-in Go text/template used for plain-text pre-cleanup reports.
+const DefaultTextTemplate = `Tarsier Pre-Cleanup Report
+================================================================================
+Generated : {{ .GeneratedAt.Format "2006-01-02 15:04:05 MST" }}
+Mode      : {{ if .DryRun }}DRY RUN (Preview Only){{ else }}LIVE EXECUTION{{ end }}
+Window    : {{ .WindowStart.Format "2006-01-02 15:04:05" }} - {{ .WindowEnd.Format "2006-01-02 15:04:05 MST" }}
 
-## Summary
-- **Logs Purged:** {{ .TotalLogsPurged }} lines ({{ .TotalErrors }} errors, {{ .TotalWarnings }} warnings)
-- **Disk Reclaimed:** {{ formatBytes .TotalBytesReclaim }}
-- **Alerts Fired:** {{ .AlertsFired }}
+SUMMARY
+--------------------------------------------------------------------------------
+Logs Purged    : {{ .TotalLogsPurged }} lines ({{ .TotalErrors }} errors, {{ .TotalWarnings }} warnings)
+Disk Reclaimed : {{ formatBytes .TotalBytesReclaim }}
+Alerts Fired   : {{ .AlertsFired }}
 
-## Source Breakdown
-| Source ID | Source Name | Files | Total Lines | Errors | Warnings | Reclaimed |
-|-----------|-------------|-------|-------------|--------|----------|-----------|
+SOURCE BREAKDOWN
+--------------------------------------------------------------------------------
+{{- if .Sources }}
+{{ printf "%-10s %-24s %6s %12s %8s %9s %12s" "SOURCE ID" "SOURCE NAME" "FILES" "TOTAL LINES" "ERRORS" "WARNINGS" "RECLAIMED" }}
+{{ printf "%-10s %-24s %6s %12s %8s %9s %12s" "----------" "------------------------" "------" "------------" "--------" "---------" "------------" }}
 {{- range .Sources }}
-| {{ .SourceID }} | {{ .SourceName }} | {{ .FilesCount }} | {{ .TotalLines }} | {{ .ErrorLines }} | {{ .WarnLines }} | {{ formatBytes .BytesReclaim }} |
+{{ printf "%-10d %-24s %6d %12d %8d %9d %12s" .SourceID .SourceName .FilesCount .TotalLines .ErrorLines .WarnLines (formatBytes .BytesReclaim) }}
+{{- end }}
+{{- else }}
+No log sources slated for cleanup.
 {{- end }}
 
-## Top Error Patterns
+TOP ERROR PATTERNS
+--------------------------------------------------------------------------------
 {{- if .TopErrorPatterns }}
 {{- range $i, $p := .TopErrorPatterns }}
-### {{ add $i 1 }}. ({{ $p.Count }}x) [{{ $p.SourceName }}]
-` + "`" + `{{ $p.Pattern }}` + "`" + `
-> Sample: ` + "`" + `{{ $p.SampleLine }}` + "`" + `
+{{ add $i 1 }}. ({{ $p.Count }}x) [{{ $p.SourceName }}]
+   Pattern : {{ $p.Pattern }}
+   Sample  : {{ $p.SampleLine }}
 {{- end }}
 {{- else }}
-*No recurring error patterns detected.*
+No recurring error patterns detected.
 {{- end }}
 
-## Container Activity
+CONTAINER ACTIVITY
+--------------------------------------------------------------------------------
 {{- if .ContainerActivity }}
-| Container | Restarts | OOM Kills | Dies |
-|-----------|----------|-----------|------|
+{{ printf "%-28s %10s %10s %8s" "CONTAINER" "RESTARTS" "OOM KILLS" "DIES" }}
+{{ printf "%-28s %10s %10s %8s" "----------------------------" "----------" "----------" "--------" }}
 {{- range .ContainerActivity }}
-| {{ .ContainerName }} | {{ .Restarts }} | {{ .OOMKills }} | {{ .Dies }} |
+{{ printf "%-28s %10d %10d %8d" .ContainerName .Restarts .OOMKills .Dies }}
 {{- end }}
 {{- else }}
-*No container lifecycle events recorded.*
+No container lifecycle events recorded.
 {{- end }}
 
-## Metric Summaries
+METRIC SUMMARIES
+--------------------------------------------------------------------------------
 {{- if .MetricSummaries }}
-| Entity | Metric | Min | Avg | Max | Samples |
-|--------|--------|-----|-----|-----|---------|
+{{ printf "%-18s %-24s %10s %10s %10s %10s" "ENTITY" "METRIC" "MIN" "AVG" "MAX" "SAMPLES" }}
+{{ printf "%-18s %-24s %10s %10s %10s %10s" "------------------" "------------------------" "----------" "----------" "----------" "----------" }}
 {{- range .MetricSummaries }}
-| {{ .Entity }} | {{ .Metric }} | {{ printf "%.2f" .Min }} | {{ printf "%.2f" .Avg }} | {{ printf "%.2f" .Max }} | {{ .Count }} |
+{{ printf "%-18s %-24s %10.2f %10.2f %10.2f %10d" .Entity .Metric .Min .Avg .Max .Count }}
 {{- end }}
 {{- else }}
-*No expiring metric samples.*
+No expiring metric samples.
 {{- end }}
 `
 
@@ -194,9 +204,9 @@ const DefaultHTMLTemplate = `<!DOCTYPE html>
 </html>
 `
 
-// TemplateEngine manages parsing and rendering of Markdown and HTML pre-cleanup reports.
+// TemplateEngine manages parsing and rendering of plain-text and HTML pre-cleanup reports.
 type TemplateEngine struct {
-	mdTemplate   *texttmpl.Template
+	textTemplate *texttmpl.Template
 	htmlTemplate *htmltmpl.Template
 }
 
@@ -234,11 +244,11 @@ func htmlFuncMap() htmltmpl.FuncMap {
 }
 
 // NewTemplateEngine creates an engine loading custom templates if provided, or defaults.
-func NewTemplateEngine(mdPath, htmlPath string) (*TemplateEngine, error) {
-	mdStr := DefaultMarkdownTemplate
-	if mdPath != "" {
-		if content, err := os.ReadFile(mdPath); err == nil {
-			mdStr = string(content)
+func NewTemplateEngine(textPath, htmlPath string) (*TemplateEngine, error) {
+	textStr := DefaultTextTemplate
+	if textPath != "" {
+		if content, err := os.ReadFile(textPath); err == nil {
+			textStr = string(content)
 		}
 	}
 
@@ -249,9 +259,9 @@ func NewTemplateEngine(mdPath, htmlPath string) (*TemplateEngine, error) {
 		}
 	}
 
-	mdTmpl, err := texttmpl.New("report_md").Funcs(templateFuncMap()).Parse(mdStr)
+	textTmpl, err := texttmpl.New("report_text").Funcs(templateFuncMap()).Parse(textStr)
 	if err != nil {
-		return nil, fmt.Errorf("parse markdown template: %w", err)
+		return nil, fmt.Errorf("parse text template: %w", err)
 	}
 
 	htmlTmpl, err := htmltmpl.New("report_html").Funcs(htmlFuncMap()).Parse(htmlStr)
@@ -260,7 +270,7 @@ func NewTemplateEngine(mdPath, htmlPath string) (*TemplateEngine, error) {
 	}
 
 	return &TemplateEngine{
-		mdTemplate:   mdTmpl,
+		textTemplate: textTmpl,
 		htmlTemplate: htmlTmpl,
 	}, nil
 }
@@ -301,10 +311,10 @@ func renderReport(tmpl templateExecutor, report PreCleanupReport, maxBytes int, 
 	return truncated, wasTruncated, nil
 }
 
-// RenderMarkdown renders the report to Markdown and enforces maxBytes cap with clean UTF-8 truncation.
-func (e *TemplateEngine) RenderMarkdown(report PreCleanupReport, maxBytes int) ([]byte, bool, error) {
-	notice := fmt.Sprintf("\n\n[Report truncated at %d bytes — see Tarsier UI for full details]", maxBytes)
-	return renderReport(e.mdTemplate, report, maxBytes, notice)
+// RenderText renders the report to plain text and enforces maxBytes cap with clean UTF-8 truncation.
+func (e *TemplateEngine) RenderText(report PreCleanupReport, maxBytes int) ([]byte, bool, error) {
+	notice := fmt.Sprintf("\n\n[Report truncated at %d bytes -- see Tarsier UI for full details]", maxBytes)
+	return renderReport(e.textTemplate, report, maxBytes, notice)
 }
 
 // RenderHTML renders the report to HTML and enforces maxBytes cap with clean UTF-8 truncation.

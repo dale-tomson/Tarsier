@@ -89,7 +89,7 @@ Tarsier is engineered from the ground up for strict resource efficiency on singl
 
 ### 6. Retention, Pre-Cleanup Digest Reports & Compaction
 * **Message Normalizer:** Replaces dynamic values (`{uuid}`, `{hex}`, `{ip}`, `{ts}`, `{str}`, `{path}`, `{num}`) and aggregates recurring error patterns into a memory-bounded counter.
-* **Pre-Cleanup Reports:** Generates Markdown or HTML summaries before data deletion (purged volumes, top error patterns, container events, and metric digests).
+* **Pre-Cleanup Reports:** Generates plain-text or HTML summaries before data deletion (purged volumes, top error patterns, container events, and metric digests).
 * **Delivery Gating:** Sends reports via Discord/SMTP with retry backoff and configurable `on_failure` policies (`proceed` vs. `block`).
 * **Hybrid Retention Executor:**
   * Instant $O(1)$ filesystem unlinks of expired `.chunk` and `.idx` log files.
@@ -301,7 +301,7 @@ cleanup:
     on_failure: "proceed" # "proceed" | "block"
     top_patterns: 10
     sample_lines_per_pattern: 3
-    format: "markdown"     # "markdown" | "html"
+    format: "text"         # "text" | "html"
     max_attachment: "2MB"
 ```
 
@@ -345,7 +345,7 @@ All API endpoints except `/healthz` and `/api/v1/auth/login` require an authenti
 | `GET` | `/api/v1/system/cleanup/history` | Historical audit log of past cleanup runs and dry runs |
 | `GET` | `/api/v1/system/cleanup/{id}/report` | Stored pre-cleanup report body for a specific run |
 | `POST` | `/api/v1/system/cleanup/run` | Triggers a cleanup run (`?dry_run=true` for non-destructive preview) |
-| `GET` | `/api/v1/system/cleanup/template` | Downloads the default Markdown or HTML report template |
+| `GET` | `/api/v1/system/cleanup/template` | Downloads the default plain-text or HTML report template |
 | `POST` | `/api/v1/system/cleanup/preview` | Dry-run template preview evaluating custom Go template syntax |
 
 ---

@@ -2340,8 +2340,8 @@ v-text="ctxEntry.level.toUpperCase()">
               <button class="outline secondary" :aria-busy="settingsView.reloadLoading" @click="settingsView.reloadConfig()" style="margin:0;">
                 Reload Configuration
               </button>
-              <button class="outline secondary" @click="settingsView.downloadTemplate('markdown')" style="margin:0;">
-                Download Markdown Template
+              <button class="outline secondary" @click="settingsView.downloadTemplate('text')" style="margin:0;">
+                Download Text Template
               </button>
               <button class="outline secondary" @click="settingsView.downloadTemplate('html')" style="margin:0;">
                 Download HTML Template
@@ -2568,8 +2568,8 @@ v-text="ctxEntry.level.toUpperCase()">
                   <label>
                     Template Format
                     <select v-model="settingsView.templateFormat" style="margin-bottom:0.5rem;">
-                      <option value="markdown">
-                        Markdown (text/template)
+                      <option value="text">
+                        Text (text/template)
                       </option>
                       <option value="html">
                         HTML (html/template)

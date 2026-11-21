@@ -280,24 +280,30 @@ func TestRenderTemplates_GoldenAndXSS(t *testing.T) {
 		t.Fatalf("NewTemplateEngine failed: %v", err)
 	}
 
-	// 1. Render Markdown
-	mdBytes, truncated, err := engine.RenderMarkdown(report, 0)
+	// 1. Render Plain Text
+	textBytes, truncated, err := engine.RenderText(report, 0)
 	if err != nil {
-		t.Fatalf("RenderMarkdown failed: %v", err)
+		t.Fatalf("RenderText failed: %v", err)
 	}
 	if truncated {
 		t.Errorf("unexpected truncation on maxBytes=0")
 	}
-	mdStr := string(mdBytes)
+	textStr := string(textBytes)
 
-	if !strings.Contains(mdStr, "# Tarsier Pre-Cleanup Report") {
-		t.Errorf("markdown missing title: %s", mdStr)
+	if !strings.Contains(textStr, "Tarsier Pre-Cleanup Report") {
+		t.Errorf("text report missing title: %s", textStr)
 	}
-	if !strings.Contains(mdStr, "DRY RUN (Preview Only)") {
-		t.Errorf("markdown missing dry-run indicator")
+	if !strings.Contains(textStr, "DRY RUN (Preview Only)") {
+		t.Errorf("text report missing dry-run indicator")
 	}
-	if !strings.Contains(mdStr, "database connection refused at {ip}:{num}") {
-		t.Errorf("markdown missing pattern")
+	if !strings.Contains(textStr, "database connection refused at {ip}:{num}") {
+		t.Errorf("text report missing pattern")
+	}
+	if !strings.Contains(textStr, "SOURCE BREAKDOWN") || !strings.Contains(textStr, "CONTAINER ACTIVITY") || !strings.Contains(textStr, "METRIC SUMMARIES") {
+		t.Errorf("text report missing expected section headers: %s", textStr)
+	}
+	if strings.Contains(textStr, "# ") || strings.Contains(textStr, "**") || strings.Contains(textStr, "|---") {
+		t.Errorf("text report unexpectedly contains markdown syntax: %s", textStr)
 	}
 
 	// 2. Render HTML
@@ -341,18 +347,18 @@ func TestRenderTemplates_MaxBytesTruncation(t *testing.T) {
 
 	// Max 500 bytes limit
 	maxBytes := 500
-	mdBytes, truncated, err := engine.RenderMarkdown(report, maxBytes)
+	textBytes, truncated, err := engine.RenderText(report, maxBytes)
 	if err != nil {
-		t.Fatalf("RenderMarkdown failed: %v", err)
+		t.Fatalf("RenderText failed: %v", err)
 	}
 	if !truncated {
 		t.Fatalf("expected truncated=true")
 	}
-	if len(mdBytes) > maxBytes {
-		t.Fatalf("rendered markdown length %d exceeds maxBytes %d", len(mdBytes), maxBytes)
+	if len(textBytes) > maxBytes {
+		t.Fatalf("rendered text length %d exceeds maxBytes %d", len(textBytes), maxBytes)
 	}
-	if !strings.Contains(string(mdBytes), "[Report truncated at 500 bytes") {
-		t.Errorf("missing truncation notice in markdown: %s", string(mdBytes))
+	if !strings.Contains(string(textBytes), "[Report truncated at 500 bytes") {
+		t.Errorf("missing truncation notice in text report: %s", string(textBytes))
 	}
 
 	// HTML truncation
@@ -365,5 +371,37 @@ func TestRenderTemplates_MaxBytesTruncation(t *testing.T) {
 	}
 	if len(htmlBytes) > maxBytes {
 		t.Fatalf("rendered HTML length %d exceeds maxBytes %d", len(htmlBytes), maxBytes)
+	}
+}
+
+func TestFormatSummaryBody(t *testing.T) {
+	report := PreCleanupReport{
+		GeneratedAt:       time.Date(2026, 11, 15, 14, 0, 0, 0, time.UTC),
+		WindowStart:       time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC),
+		WindowEnd:         time.Date(2026, 11, 15, 0, 0, 0, 0, time.UTC),
+		TotalLogsPurged:   15000,
+		TotalErrors:       42,
+		TotalWarnings:     15,
+		TotalBytesReclaim: 524288, // 512 KiB
+		AlertsFired:       2,
+	}
+
+	manualBody := FormatSummaryBody(report, "manual")
+	expectedManual := "Generated : 2026-11-15 14:00:00 UTC\n" +
+		"Mode : Manual\n" +
+		"Cleanup Window: From 2026-11-08 00:00:00 To 2026-11-15 00:00:00 UTC\n\n" +
+		"Summary:\n" +
+		"Logs Lines Purged: 15000\n" +
+		"    Errors: 42\n" +
+		"    Warnings: 15\n\n" +
+		"Disk Space Freed: 512.0 KiB\n" +
+		"Alerts Fired: 2"
+	if manualBody != expectedManual {
+		t.Errorf("FormatSummaryBody(manual) mismatch:\ngot:\n%s\nwant:\n%s", manualBody, expectedManual)
+	}
+
+	autoBody := FormatSummaryBody(report, "scheduled")
+	if !strings.Contains(autoBody, "Mode : Auto\n") {
+		t.Errorf("FormatSummaryBody(scheduled) expected Mode : Auto, got:\n%s", autoBody)
 	}
 }
