@@ -8,6 +8,7 @@
 * [5. Alerting & Notifications](05-Alerting-and-Notifications)
 * [6. REST API & Automation](06-REST-API-and-Automation)
 * [7. Developer Internals & Contributing](07-Developer-Internals-and-Contributing)
+* [Future Features](Future-Features)
 
 ---
 

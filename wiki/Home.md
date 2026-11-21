@@ -68,3 +68,4 @@ The `#overview` view surfaces host CPU and memory telemetry, active firing alert
 * Deploy Tarsier in minutes with [1. Quickstart & Deployment](01-Quickstart-and-Deployment).
 * Review every YAML setting and operational detail in [2. Configuration & Operations](02-Configuration-and-Operations).
 * Explore host, container, log, and alerting subsystems in [3. Host & Container Monitoring](03-Host-and-Container-Monitoring), [4. Log Search & Retention](04-Log-Search-and-Retention), and [5. Alerting & Notifications](05-Alerting-and-Notifications).
+* Review upcoming capabilities and architectural extensions in [Future Features](Future-Features).
