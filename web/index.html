@@ -163,7 +163,7 @@
           <article v-if="store.systemHealth && store.systemHealth.cleanup_warning && store.systemHealth.cleanup_warning.active" class="alert-card-firing" style="margin-bottom: 1.5rem; border-left: 4px solid #f59e0b; background-color: rgba(245, 158, 11, 0.08);">
             <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
               <strong style="color: #d97706;">
-                ⚠️ Cleanup Report Delivery Failed
+                Cleanup Report Delivery Failed
               </strong>
               <a href="#settings" @click="store.setRoute('settings')">
                 <small>
@@ -177,7 +177,7 @@
           <article v-if="alertsView && alertsView.activeAlerts.length > 0" class="alert-card-firing" style="margin-bottom: 1.5rem;">
             <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
               <strong style="color: #dc2626;">
-                ⚠️ {{ alertsView.activeAlerts.length }} Active Firing Alert{{ alertsView.activeAlerts.length > 1 ? 's' : '' }}
+                {{ alertsView.activeAlerts.length }} Active Firing Alert{{ alertsView.activeAlerts.length > 1 ? 's' : '' }}
               </strong>
               <a href="#alerts" @click="store.setRoute('alerts')">
                 <small>
@@ -1581,7 +1581,7 @@ v-text="ctxEntry.level.toUpperCase()">
 
               <form @submit.prevent="alertsView.handleFormSubmit()">
                 <div v-if="alertsView.stepError" class="wizard-error-banner" role="alert">
-                  <span>&#9888;&#65039;</span>
+                  <span class="badge badge-warning" style="font-size:0.75rem;padding:0.12rem 0.4rem;">Alert</span>
                   <span v-text="alertsView.stepError"></span>
                 </div>
 
@@ -1594,7 +1594,7 @@ v-text="ctxEntry.level.toUpperCase()">
                     </div>
                     <div class="wizard-kind-tabs">
                       <button
-                        v-for="kd in [{k:'metric',label:'📊 Metric Threshold'},{k:'log',label:'📄 Log Pattern'},{k:'container',label:'🐳 Container Event'}]"
+                        v-for="kd in [{k:'metric',label:'Metric Threshold'},{k:'log',label:'Log Pattern'},{k:'container',label:'Container Event'}]"
                         :key="kd.k"
                         type="button"
                         class="wizard-kind-tab"
@@ -1620,7 +1620,7 @@ v-text="ctxEntry.level.toUpperCase()">
                         @click="alertsView.selectMetricCard(card.key)"
                       >
                         <div class="wizard-card-top">
-                          <span class="wizard-card-icon" v-text="card.icon"></span>
+                          <span class="badge badge-secondary wizard-card-tag" v-text="card.tag"></span>
                           <span v-if="alertsView.isMetricCardActive(card.key)" class="wizard-card-check">✓</span>
                         </div>
                         <strong class="wizard-card-title" v-text="card.title"></strong>
@@ -1634,7 +1634,7 @@ v-text="ctxEntry.level.toUpperCase()">
                         @click="alertsView.openCustomMetricPicker()"
                       >
                         <div class="wizard-card-top">
-                          <span class="wizard-card-icon">⚙️</span>
+                          <span class="badge badge-secondary wizard-card-tag">CUSTOM</span>
                           <span v-if="alertsView.customMetricOpen || !['cpu_pct','mem_used_pct','mem_pct','disk_used_pct','net_rx_bps','load_1m'].includes(alertsView.ruleForm.metricName)" class="wizard-card-check">✓</span>
                         </div>
                         <strong class="wizard-card-title">Custom / Other</strong>
@@ -1684,7 +1684,7 @@ v-text="ctxEntry.level.toUpperCase()">
                         @click="alertsView.selectTargetMode('host')"
                       >
                         <div class="wizard-card-top">
-                          <span class="wizard-card-icon">🖥️</span>
+                          <span class="badge badge-secondary wizard-card-tag">HOST</span>
                           <span v-if="alertsView.targetMode === 'host'" class="wizard-card-check">✓</span>
                         </div>
                         <strong class="wizard-card-title">Host System</strong>
@@ -1698,7 +1698,7 @@ v-text="ctxEntry.level.toUpperCase()">
                         @click="alertsView.selectTargetMode('container')"
                       >
                         <div class="wizard-card-top">
-                          <span class="wizard-card-icon">📦</span>
+                          <span class="badge badge-primary wizard-card-tag">CONTAINER</span>
                           <span v-if="alertsView.targetMode === 'container'" class="wizard-card-check">✓</span>
                         </div>
                         <strong class="wizard-card-title">Specific Container</strong>
@@ -1712,7 +1712,7 @@ v-text="ctxEntry.level.toUpperCase()">
                         @click="alertsView.selectTargetMode('all_containers')"
                       >
                         <div class="wizard-card-top">
-                          <span class="wizard-card-icon">🐳</span>
+                          <span class="badge badge-primary wizard-card-tag">ALL</span>
                           <span v-if="alertsView.targetMode === 'all_containers'" class="wizard-card-check">✓</span>
                         </div>
                         <strong class="wizard-card-title">All Containers</strong>
@@ -1726,7 +1726,7 @@ v-text="ctxEntry.level.toUpperCase()">
                         @click="alertsView.selectTargetMode('custom')"
                       >
                         <div class="wizard-card-top">
-                          <span class="wizard-card-icon">🎯</span>
+                          <span class="badge badge-secondary wizard-card-tag">CUSTOM</span>
                           <span v-if="alertsView.targetMode === 'custom'" class="wizard-card-check">✓</span>
                         </div>
                         <strong class="wizard-card-title">Custom Target</strong>
@@ -1910,7 +1910,7 @@ v-text="ctxEntry.level.toUpperCase()">
                     </div>
                     <div class="severity-pill-grid">
                       <button
-                        v-for="sev in [{val:'critical',icon:'🔴',label:'Critical',desc:'Immediate attention required'},{val:'warning',icon:'🟡',label:'Warning',desc:'Elevated resource or error state'},{val:'info',icon:'🔵',label:'Info',desc:'Informational notice'}]"
+                        v-for="sev in [{val:'critical',label:'Critical',desc:'Immediate attention required'},{val:'warning',label:'Warning',desc:'Elevated resource or error state'},{val:'info',label:'Info',desc:'Informational notice'}]"
                         :key="sev.val"
                         type="button"
                         class="severity-pill"
@@ -1918,7 +1918,7 @@ v-text="ctxEntry.level.toUpperCase()">
                         @click="alertsView.ruleForm.severity = sev.val"
                       >
                         <span class="severity-pill-top">
-                          <span v-text="sev.icon"></span>
+                          <span :class="'badge badge-' + sev.val" style="font-size:0.68rem;padding:0.1rem 0.35rem;" v-text="sev.val.toUpperCase()"></span>
                           <strong v-text="sev.label"></strong>
                         </span>
                         <small v-text="sev.desc"></small>
@@ -1933,14 +1933,13 @@ v-text="ctxEntry.level.toUpperCase()">
                     </div>
                     <div class="channel-card-grid">
                       <label
-                        v-for="ch in [{key:'email',icon:'✉️',label:'Email'},{key:'discord',icon:'💬',label:'Discord'}]"
+                        v-for="ch in [{key:'email',label:'Email'},{key:'discord',label:'Discord'}]"
                         :key="ch.key"
                         class="channel-choice-card"
                         :class="{ active: alertsView.ruleForm.channels[ch.key] }"
                       >
                         <div class="channel-card-left">
                           <input type="checkbox" v-model="alertsView.ruleForm.channels[ch.key]" style="margin:0;"/>
-                          <span v-text="ch.icon"></span>
                           <strong v-text="ch.label"></strong>
                         </div>
                         <span
@@ -2029,9 +2028,9 @@ v-text="ctxEntry.level.toUpperCase()">
                     >
                       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
                         <strong>Dry-Run Result:</strong>
-                        <span v-if="alertsView.previewResult.would_fire_now" class="badge badge-critical">&#9888;&#65039; WOULD FIRE NOW</span>
-                        <span v-else-if="alertsView.isNoTelemetryPreview()" class="badge badge-info">&#8505;&#65039; NO RECENT TELEMETRY</span>
-                        <span v-else class="badge badge-success">&#9989; CONDITION SATISFIED / OK</span>
+                        <span v-if="alertsView.previewResult.would_fire_now" class="badge badge-critical">WOULD FIRE NOW</span>
+                        <span v-else-if="alertsView.isNoTelemetryPreview()" class="badge badge-info">NO RECENT TELEMETRY</span>
+                        <span v-else class="badge badge-success">CONDITION SATISFIED / OK</span>
                       </div>
 
                       <ul v-if="alertsView.previewResult.matched_targets && alertsView.previewResult.matched_targets.length" style="margin-bottom:0.5rem;padding-left:1.25rem;">
@@ -2534,7 +2533,7 @@ v-text="ctxEntry.level.toUpperCase()">
             <article style="max-width:500px; margin:0 auto;">
               <header>
                 <h4 style="margin-bottom:0; color:#dc2626;">
-                  ⚠️ Confirm Manual Cleanup
+                  Confirm Manual Cleanup
                 </h4>
               </header>
               <p style="margin-top:1rem;">

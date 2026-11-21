@@ -38,11 +38,11 @@
   ];
 
   const PRIMARY_METRIC_CARDS = [
-    { key: 'cpu', icon: '💻', title: 'CPU Usage', subtitle: 'Processor utilization (%)', metric: 'cpu_pct', unit: '%' },
-    { key: 'mem', icon: '🧠', title: 'Memory Usage', subtitle: 'RAM utilization (%)', metric: 'mem_used_pct', unit: '%' },
-    { key: 'disk', icon: '💾', title: 'Disk Usage', subtitle: 'Filesystem capacity (%)', metric: 'disk_used_pct', unit: '%' },
-    { key: 'net', icon: '🌐', title: 'Network I/O', subtitle: 'Inbound throughput (B/s)', metric: 'net_rx_bps', unit: 'B/s' },
-    { key: 'load', icon: '⏱️', title: 'System Load', subtitle: '1-minute load average', metric: 'load_1m', unit: 'Load' }
+    { key: 'cpu', tag: 'CPU', title: 'CPU Usage', subtitle: 'Processor utilization (%)', metric: 'cpu_pct', unit: '%' },
+    { key: 'mem', tag: 'RAM', title: 'Memory Usage', subtitle: 'RAM utilization (%)', metric: 'mem_used_pct', unit: '%' },
+    { key: 'disk', tag: 'DISK', title: 'Disk Usage', subtitle: 'Filesystem capacity (%)', metric: 'disk_used_pct', unit: '%' },
+    { key: 'net', tag: 'NET', title: 'Network I/O', subtitle: 'Inbound throughput (B/s)', metric: 'net_rx_bps', unit: 'B/s' },
+    { key: 'load', tag: 'LOAD', title: 'System Load', subtitle: '1-minute load average', metric: 'load_1m', unit: 'Load' }
   ];
 
   const DEFAULT_THRESHOLDS = {

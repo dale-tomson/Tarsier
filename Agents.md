@@ -36,6 +36,7 @@ When writing or modifying code, adhere strictly to these finalized architectural
   * Render all log lines as plain text (never `v-html` / raw HTML) to prevent XSS.
 
 ## 4. Coding & Testing Standards
+* **Zero Emojis:** Do not use emojis at any point across the repository. This applies strictly to UI templates, frontend text, backend logs, error messages, code comments, commit messages, pull request templates, and documentation. Use clean text labels, standard typography, or SVG icons instead.
 * **Bounded Memory:** Every in-memory map, ring buffer, and channel must have an explicit configured upper bound. Reuse byte slices via `sync.Pool` in ingest and decompression paths.
 * **Testing:**
   * Write table-driven unit tests for parsers, config validation, and alert state machines (using fake clocks).

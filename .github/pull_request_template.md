@@ -2,12 +2,12 @@
 <!-- Provide a clear, concise summary of the changes and the problem they solve. -->
 
 ## Type of Change
-- [ ] 🚀 New feature (non-breaking change adding functionality)
-- [ ] 🐛 Bug fix (non-breaking change fixing an issue)
-- [ ] ⚡ Performance improvement
-- [ ] 🧹 Refactoring / Code cleanup
-- [ ] 📝 Documentation update
-- [ ] ⚙️ CI / Build / Infrastructure
+- [ ] New feature (non-breaking change adding functionality)
+- [ ] Bug fix (non-breaking change fixing an issue)
+- [ ] Performance improvement
+- [ ] Refactoring / Code cleanup
+- [ ] Documentation update
+- [ ] CI / Build / Infrastructure
 
 ## Architectural Constraints & PRAGMAs Checklist
 *Strict adherence to `AGENTS.md` rules is mandatory:*

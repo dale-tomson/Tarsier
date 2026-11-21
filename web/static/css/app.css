@@ -1615,9 +1615,12 @@ mark,.log-match {
   margin-bottom: 0.15rem;
 }
 
-.wizard-card-icon {
-  font-size: 1.2rem;
-  line-height: 1;
+.wizard-card-tag {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.35rem;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .wizard-card-check {
