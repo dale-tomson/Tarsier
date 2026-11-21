@@ -75,13 +75,16 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: 'tarsier/go.mod'
+          cache-dependency-path: 'tarsier/go.sum'
           cache: true
 
       - name: Run go vet
+        working-directory: tarsier
         run: go vet ./...
 
       - name: Run unit tests with race detector
+        working-directory: tarsier
         run: go test -race -v ./...
 
   goreleaser:
@@ -98,7 +101,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: 'tarsier/go.mod'
+          cache-dependency-path: 'tarsier/go.sum'
           cache: true
 
       - name: Run GoReleaser

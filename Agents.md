@@ -41,16 +41,20 @@ When writing or modifying code, adhere strictly to these finalized architectural
 * **Testing:**
   * Write table-driven unit tests for parsers, config validation, and alert state machines (using fake clocks).
   * Log detection changes must pass the 150+ line golden corpus test including false-positive traps.
-  * Run `go test -race ./...` before pushing any branch.
+  * Run `cd tarsier && go test -race ./...` (or `make test` from root) before pushing any branch.
 * **Directory Layout:**
   ```text
-  cmd/tarsier/       # CLI entrypoint, flags (-config, -test-config, -version)
-  internal/
-    config/          # YAML loader, \${VAR} expansion, validation
-    db/              # SQLite factory, PRAGMAs, single-writer queues (config & metrics)
-    collector/       # Host (/proc, /sys) and hand-rolled Docker socket collectors
-    logs/            # Zero-alloc timestamp/level detector, Zstd chunk writer, .idx binary search
-    alert/           # Rule cache, evaluators, state machine, SMTP & Discord notifiers
-    cleanup/         # Retention worker, pre-cleanup report generator (Markdown/HTML)
-    api/             # chi HTTP server, auth middleware, REST /api/v1 handlers
-  web/               # index.html, ES modules, vendored petite-vue, Pico.css, uPlot
+  tarsier/
+    cmd/tarsier/     # CLI entrypoint, flags (-config, -test-config, -version)
+    internal/
+      config/        # YAML loader, \${VAR} expansion, validation
+      db/            # SQLite factory, PRAGMAs, single-writer queues (config & metrics)
+      collector/     # Host (/proc, /sys) and hand-rolled Docker socket collectors
+      logs/          # Zero-alloc timestamp/level detector, Zstd chunk writer, .idx binary search
+      alert/         # Rule cache, evaluators, state machine, SMTP & Discord notifiers
+      cleanup/       # Retention worker, pre-cleanup report generator (Markdown/HTML)
+      api/           # chi HTTP server, auth middleware, REST /api/v1 handlers
+    web/             # index.html, ES modules, vendored petite-vue, Pico.css, uPlot
+  deploy/            # Standalone deployment bundle (docker-compose.yml, install.sh, .env.example)
+  docs/              # Documentation and OpenAPI 3.1 specification (openapi.yaml)
+  ```

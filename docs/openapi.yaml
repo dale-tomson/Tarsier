@@ -1,0 +1,1766 @@
+openapi: 3.1.0
+info:
+  title: Tarsier REST API
+  description: |
+    Tarsier is an ultra-lightweight, self-hosted, single-server observability engine and dashboard.
+    This document describes the HTTP and JSON REST endpoints exposed under `/api/v1` and `/healthz`.
+  version: 0.1.1
+  license:
+    name: GNU Affero General Public License v3.0
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+paths:
+  /healthz:
+    get:
+      summary: Health check probe
+      description: Returns service liveness and uptime status without requiring authentication.
+      tags:
+        - Health & System
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthzResponse"
+
+  /api/v1/auth/login:
+    post:
+      summary: User login
+      description: Authenticates admin credentials and establishes a session via HTTP-only cookie.
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authentication successful
+          headers:
+            Set-Cookie:
+              description: Session cookie (`tarsier_session`)
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/ErrorBadRequest"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "429":
+          description: Rate limit exceeded due to too many failed login attempts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/auth/logout:
+    post:
+      summary: User logout
+      description: Terminates the current session and invalidates the session cookie.
+      tags:
+        - Authentication
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Session cleared successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+
+  /api/v1/auth/me:
+    get:
+      summary: Current user info
+      description: Returns username and expiration timestamp of the authenticated session.
+      tags:
+        - Authentication
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Authenticated user details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeResponse"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+
+  /api/v1/system/config:
+    get:
+      summary: Sanitized system configuration
+      description: Returns non-sensitive runtime configuration parameters.
+      tags:
+        - Health & System
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Sanitized system configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemConfigResponse"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+
+  /api/v1/system/health:
+    get:
+      summary: System health & telemetry
+      description: Returns operational diagnostics, Go runtime memory, SQLite database file sizes, and storage threshold warnings.
+      tags:
+        - Health & System
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: System health details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemHealthResponse"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+
+  /api/v1/system/reload:
+    post:
+      summary: Hot reload configuration
+      description: Reloads `tarsier.yaml` configuration and refreshes rule cache without server restart.
+      tags:
+        - Health & System
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Configuration reloaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/host/metrics:
+    get:
+      summary: Query host time-series metrics
+      description: Retrieves downsampled or raw time-series data points for CPU, memory, storage disks, and network interfaces.
+      tags:
+        - Host & Metrics
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: entity
+          in: query
+          description: Entity identifier (default is `host`)
+          schema:
+            type: string
+            default: host
+        - name: metric
+          in: query
+          required: true
+          description: Telemetry metric name (e.g., `cpu_utilization`, `mem_used`, `disk_used_percent`)
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          description: Start timestamp (Unix epoch milliseconds or RFC 3339 string)
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: true
+          description: End timestamp (Unix epoch milliseconds or RFC 3339 string)
+          schema:
+            type: string
+        - name: step
+          in: query
+          description: Rollup resolution step (`raw`, `1m`, `5m`, `1d`, or `auto`)
+          schema:
+            type: string
+            enum: [auto, raw, 1m, 5m, 1d]
+            default: auto
+      responses:
+        "200":
+          description: Query results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HostMetricsResponse"
+        "400":
+          $ref: "#/components/responses/ErrorBadRequest"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/metrics/daily/summary:
+    get:
+      summary: Today's host summary metrics
+      description: Returns live average and peak statistics for host CPU, memory, and container utilization.
+      tags:
+        - Host & Metrics
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Today summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodaySummaryResponse"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/metrics/daily:
+    get:
+      summary: Multi-day daily rollups history
+      description: Returns aggregated daily Average and Peak (Max) metrics for long-term capacity planning.
+      tags:
+        - Host & Metrics
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: entity
+          in: query
+          description: Entity identifier (`host` or container name)
+          schema:
+            type: string
+            default: host
+        - name: days
+          in: query
+          description: Number of days to include in history
+          schema:
+            type: integer
+            default: 14
+        - name: include_today
+          in: query
+          description: Whether to compute and include today's incomplete day in the output
+          schema:
+            type: boolean
+            default: true
+      responses:
+        "200":
+          description: Daily history records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyHistoryResponse"
+        "400":
+          $ref: "#/components/responses/ErrorBadRequest"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/containers:
+    get:
+      summary: List Docker containers
+      description: Returns all discovered Docker containers with live resource usage, restart counts, and hollow health states.
+      tags:
+        - Containers
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Container list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContainerSummary"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/containers/{name}:
+    get:
+      summary: Inspect single Docker container
+      description: Returns detailed stats, environment configuration summary, and recent lifecycle events for a specific container.
+      tags:
+        - Containers
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Container name or container ID
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Container detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContainerDetail"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "404":
+          $ref: "#/components/responses/ErrorNotFound"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/sources:
+    get:
+      summary: List log sources
+      description: Returns all active log sources (Docker containers and host log files) with total byte sizes and timestamps.
+      tags:
+        - Logs
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Log sources list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LogSource"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/logs:
+    get:
+      summary: Query and search logs
+      description: Performs zero-allocation Boyer-Moore byte searches and level filtering across hot ring buffers and compressed chunks.
+      tags:
+        - Logs
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: source
+          in: query
+          required: true
+          description: Log source ID or target source name
+          schema:
+            type: string
+        - name: q
+          in: query
+          description: Substring or regular expression pattern
+          schema:
+            type: string
+        - name: level
+          in: query
+          description: Log severity filter (`DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL`)
+          schema:
+            type: string
+        - name: stream
+          in: query
+          description: Stream filter (`stdout`, `stderr`, or `all`)
+          schema:
+            type: string
+            enum: [all, stdout, stderr]
+            default: all
+        - name: from
+          in: query
+          description: Earliest timestamp boundary (RFC 3339 or Unix ms)
+          schema:
+            type: string
+        - name: to
+          in: query
+          description: Latest timestamp boundary (RFC 3339 or Unix ms)
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum number of records to return (1-1000)
+          schema:
+            type: integer
+            default: 100
+        - name: cursor
+          in: query
+          description: Opaque pagination cursor
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Log search records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogSearchResponse"
+        "400":
+          $ref: "#/components/responses/ErrorBadRequest"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/logs/context:
+    get:
+      summary: Retrieve surrounding log context
+      description: Fetches adjacent log lines around a targeted record ID within the same source.
+      tags:
+        - Logs
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: source
+          in: query
+          required: true
+          description: Log source ID or source name
+          schema:
+            type: string
+        - name: record_id
+          in: query
+          required: true
+          description: Target log record ID
+          schema:
+            type: string
+        - name: before
+          in: query
+          description: Number of preceding lines to retrieve (max 50)
+          schema:
+            type: integer
+            default: 20
+        - name: after
+          in: query
+          description: Number of succeeding lines to retrieve (max 50)
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Context lines and target record index
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogContextResponse"
+        "400":
+          $ref: "#/components/responses/ErrorBadRequest"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/alerts/active:
+    get:
+      summary: List active firing alerts
+      description: Returns currently firing and pending alerts evaluated by the in-memory state machine.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Active alerts list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActiveAlert"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/alerts/rules:
+    get:
+      summary: List alert rules
+      description: Returns all configured alert rules with their live runtime state.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Alert rules list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlertRuleWithState"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+    post:
+      summary: Create alert rule
+      description: Creates a new metric, container, or log pattern alert rule.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertRule"
+      responses:
+        "201":
+          description: Rule created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+        "400":
+          $ref: "#/components/responses/ErrorBadRequest"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/alerts/rules/{id}:
+    get:
+      summary: Get alert rule
+      description: Retrieves a single alert rule definition by ID.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Alert rule ID
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Alert rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "404":
+          $ref: "#/components/responses/ErrorNotFound"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+    put:
+      summary: Update alert rule
+      description: Updates an existing alert rule definition.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Alert rule ID
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertRule"
+      responses:
+        "200":
+          description: Alert rule updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+        "400":
+          $ref: "#/components/responses/ErrorBadRequest"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "404":
+          $ref: "#/components/responses/ErrorNotFound"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+    delete:
+      summary: Delete alert rule
+      description: Deletes an alert rule by ID.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Alert rule ID
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Alert rule deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "404":
+          $ref: "#/components/responses/ErrorNotFound"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/alerts/rules/{id}/enable:
+    post:
+      summary: Enable alert rule
+      description: Enables an existing alert rule so it is actively evaluated.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Rule enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "404":
+          $ref: "#/components/responses/ErrorNotFound"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/alerts/rules/{id}/disable:
+    post:
+      summary: Disable alert rule
+      description: Disables an existing alert rule, preventing evaluation and alerts.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Rule disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "404":
+          $ref: "#/components/responses/ErrorNotFound"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/alerts/templates:
+    get:
+      summary: Get starter rule templates
+      description: Returns pre-configured templates for common host, container, and log alerts.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Curated rule templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StarterTemplate"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+
+  /api/v1/alerts/rules/preview:
+    post:
+      summary: Dry-run preview alert rule condition
+      description: Tests an alert rule condition against historical telemetry and live state before saving.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RulePreviewRequest"
+      responses:
+        "200":
+          description: Rule evaluation preview results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RulePreviewResponse"
+        "400":
+          $ref: "#/components/responses/ErrorBadRequest"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/alerts/rules/export:
+    get:
+      summary: Export alert rules bundle
+      description: Exports all configured rules as a JSON bundle for backup or migration.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Exported rules bundle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RulesExportBundle"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/alerts/rules/import:
+    post:
+      summary: Import alert rules bundle
+      description: Imports alert rules from a JSON bundle using either `merge` or `replace` mode.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: mode
+          in: query
+          description: Import mode (`merge` updates/adds rules; `replace` wipes existing rules)
+          schema:
+            type: string
+            enum: [merge, replace]
+            default: merge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RulesExportBundle"
+      responses:
+        "200":
+          description: Import result summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportRulesResponse"
+        "400":
+          $ref: "#/components/responses/ErrorBadRequest"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/alerts/history:
+    get:
+      summary: Alert event history
+      description: Returns historical audit events of alert state transitions (`firing`, `resolved`).
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: rule_id
+          in: query
+          description: Filter events by rule ID
+          schema:
+            type: integer
+        - name: status
+          in: query
+          description: Filter events by status (`firing`, `resolved`)
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum number of events to return
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          description: Event list offset
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Alert events history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlertEvent"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/alerts/test:
+    post:
+      summary: Test outbound notification channel
+      description: Dispatches a simulated test alert notification to Discord or SMTP.
+      tags:
+        - Alerts
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestAlertNotificationRequest"
+      responses:
+        "200":
+          description: Test notification dispatched successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "400":
+          $ref: "#/components/responses/ErrorBadRequest"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "502":
+          description: Delivery failed to notification provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/system/cleanup/history:
+    get:
+      summary: Retention cleanup history
+      description: Returns historical records of retention worker execution cycles.
+      tags:
+        - Retention & Cleanup
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum runs to retrieve
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Cleanup history entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CleanupRunSummary"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/system/cleanup/{id}/report:
+    get:
+      summary: Retrieve pre-cleanup digest report
+      description: Returns the generated Markdown or sandboxed HTML digest report for a specific cleanup cycle.
+      tags:
+        - Retention & Cleanup
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Cleanup run ID
+          schema:
+            type: integer
+        - name: format
+          in: query
+          description: Desired response format (`html`, `markdown`, or `json`)
+          schema:
+            type: string
+            enum: [html, markdown, json]
+            default: json
+      responses:
+        "200":
+          description: Digest report content
+          content:
+            text/html:
+              schema:
+                type: string
+            text/markdown:
+              schema:
+                type: string
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CleanupReportResponse"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "404":
+          $ref: "#/components/responses/ErrorNotFound"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/system/cleanup/run:
+    post:
+      summary: Trigger manual cleanup cycle
+      description: Executes an on-demand retention cycle with optional dry-run mode.
+      tags:
+        - Retention & Cleanup
+      security:
+        - cookieAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CleanupRunRequest"
+      responses:
+        "200":
+          description: Cleanup run completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CleanupRunResult"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "409":
+          description: A retention cycle is already in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+  /api/v1/system/cleanup/template:
+    get:
+      summary: Download cleanup report template
+      description: Returns the active Markdown template used to render pre-cleanup reports.
+      tags:
+        - Retention & Cleanup
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Template text
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+
+  /api/v1/system/cleanup/preview:
+    post:
+      summary: Preview retention deletion impact
+      description: Simulates retention criteria and calculates byte and line amounts that would be pruned right now.
+      tags:
+        - Retention & Cleanup
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Pruning simulation numbers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CleanupPreviewResponse"
+        "401":
+          $ref: "#/components/responses/ErrorUnauthorized"
+        "500":
+          $ref: "#/components/responses/ErrorInternal"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: tarsier_session
+
+  responses:
+    ErrorBadRequest:
+      description: Invalid request parameters or malformed JSON
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ErrorUnauthorized:
+      description: Authentication required or session expired
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ErrorNotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ErrorInternal:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          example: invalid_param
+        message:
+          type: string
+          example: start time cannot exceed end time
+
+    HealthzResponse:
+      type: object
+      required:
+        - status
+        - uptime_seconds
+        - version
+      properties:
+        status:
+          type: string
+          example: ok
+        uptime_seconds:
+          type: integer
+          example: 3600
+        version:
+          type: string
+          example: 0.1.1
+
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          format: password
+          example: admin
+
+    LoginResponse:
+      type: object
+      required:
+        - status
+        - user
+      properties:
+        status:
+          type: string
+          example: ok
+        user:
+          type: string
+          example: admin
+
+    MeResponse:
+      type: object
+      required:
+        - username
+        - authenticated
+      properties:
+        username:
+          type: string
+          example: admin
+        authenticated:
+          type: boolean
+          example: true
+        expires_at:
+          type: string
+          format: date-time
+          example: 2026-11-22T12:00:00Z
+
+    SystemConfigResponse:
+      type: object
+      properties:
+        server:
+          type: object
+          properties:
+            listen:
+              type: string
+              example: ":8080"
+            base_url:
+              type: string
+              example: "http://127.0.0.1:8080"
+            timezone:
+              type: string
+              example: "UTC"
+        storage:
+          type: object
+          properties:
+            path:
+              type: string
+              example: "/data"
+            logs_max_size:
+              type: string
+              example: "3GiB"
+            metrics_max_size:
+              type: string
+              example: "256MiB"
+        retention:
+          type: object
+          properties:
+            logs:
+              type: string
+              example: "7d"
+            metrics_raw:
+              type: string
+              example: "24h"
+            metrics_1m:
+              type: string
+              example: "7d"
+            metrics_5m:
+              type: string
+              example: "30d"
+            metrics_1d:
+              type: string
+              example: "90d"
+
+    SystemHealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+          example: 0.1.1
+        go_version:
+          type: string
+          example: go1.27
+        uptime_seconds:
+          type: integer
+          example: 86400
+        started_at:
+          type: string
+          format: date-time
+        databases:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              path:
+                type: string
+              status:
+                type: string
+        memory:
+          type: object
+          properties:
+            alloc_bytes:
+              type: integer
+            total_alloc_bytes:
+              type: integer
+            sys_bytes:
+              type: integer
+            num_gc:
+              type: integer
+        storage:
+          type: object
+          properties:
+            logs_bytes:
+              type: integer
+            logs_max_bytes:
+              type: integer
+            metrics_bytes:
+              type: integer
+            metrics_max_bytes:
+              type: integer
+
+    TimeSeriesPoint:
+      type: object
+      required:
+        - ts
+        - v
+      properties:
+        ts:
+          type: integer
+          description: Unix epoch millisecond timestamp
+          example: 1700000000000
+        v:
+          type: number
+          description: Value
+          example: 42.5
+        min:
+          type: number
+          nullable: true
+        max:
+          type: number
+          nullable: true
+
+    HostMetricsResponse:
+      type: object
+      properties:
+        entity:
+          type: string
+          example: host
+        metric:
+          type: string
+          example: cpu_utilization
+        step:
+          type: string
+          example: 1m
+        from:
+          type: string
+        to:
+          type: string
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimeSeriesPoint"
+
+    TodaySummaryResponse:
+      type: object
+      properties:
+        date:
+          type: string
+          example: "2026-11-21"
+        host:
+          type: object
+          properties:
+            cpu:
+              type: object
+              properties:
+                avg_pct:
+                  type: number
+                peak_pct:
+                  type: number
+                cores:
+                  type: integer
+            ram:
+              type: object
+              properties:
+                avg_bytes:
+                  type: integer
+                peak_bytes:
+                  type: integer
+                total_bytes:
+                  type: integer
+        containers:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              cpu:
+                type: object
+                properties:
+                  avg_pct:
+                    type: number
+                  peak_pct:
+                    type: number
+              ram:
+                type: object
+                properties:
+                  avg_bytes:
+                    type: integer
+                  peak_bytes:
+                    type: integer
+                  limit_bytes:
+                    type: integer
+
+    DailyHistoryEntry:
+      type: object
+      properties:
+        date:
+          type: string
+          example: "2026-11-20"
+        cpu:
+          type: object
+          properties:
+            avg_pct:
+              type: number
+            peak_pct:
+              type: number
+        ram:
+          type: object
+          properties:
+            avg_bytes:
+              type: integer
+            peak_bytes:
+              type: integer
+
+    DailyHistoryResponse:
+      type: object
+      properties:
+        entity:
+          type: string
+          example: host
+        days:
+          type: integer
+          example: 14
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/DailyHistoryEntry"
+
+    ContainerSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "a1b2c3d4e5f6"
+        name:
+          type: string
+          example: "web-server"
+        image:
+          type: string
+          example: "nginx:alpine"
+        state:
+          type: string
+          example: "running"
+        status:
+          type: string
+          example: "Up 3 days"
+        health:
+          type: string
+          example: "healthy"
+        restarts:
+          type: integer
+          example: 0
+        cpu_percent:
+          type: number
+          example: 2.45
+        mem_usage:
+          type: integer
+          example: 33554432
+        mem_limit:
+          type: integer
+          example: 268435456
+        net_rx_bytes:
+          type: integer
+          example: 1048576
+        net_tx_bytes:
+          type: integer
+          example: 2097152
+
+    ContainerDetail:
+      type: object
+      properties:
+        summary:
+          $ref: "#/components/schemas/ContainerSummary"
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              action:
+                type: string
+                example: restart
+              timestamp:
+                type: string
+                format: date-time
+
+    LogSource:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        type:
+          type: string
+          enum: [docker, file]
+          example: docker
+        name:
+          type: string
+          example: "tarsier"
+        path:
+          type: string
+          example: "/var/run/docker.sock"
+        active:
+          type: boolean
+          example: true
+        total_bytes:
+          type: integer
+          example: 2457600
+
+    LogRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "1:1700000000000:0"
+        ts:
+          type: string
+          format: date-time
+          example: "2026-11-21T12:00:00Z"
+        level:
+          type: string
+          enum: [DEBUG, INFO, WARN, ERROR, FATAL]
+          example: INFO
+        stream:
+          type: string
+          enum: [stdout, stderr]
+          example: stdout
+        message:
+          type: string
+          example: "Server listening on :8080"
+        inferred_ts:
+          type: boolean
+          example: false
+        inferred_level:
+          type: boolean
+          example: false
+
+    LogSearchResponse:
+      type: object
+      properties:
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogRecord"
+        cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+          example: false
+
+    LogContextResponse:
+      type: object
+      properties:
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogRecord"
+        target_index:
+          type: integer
+          example: 20
+
+    ActiveAlert:
+      type: object
+      properties:
+        rule_id:
+          type: integer
+          example: 1
+        rule_name:
+          type: string
+          example: "High Host CPU"
+        kind:
+          type: string
+          enum: [metric, container, log]
+          example: metric
+        severity:
+          type: string
+          enum: [info, warning, critical]
+          example: warning
+        target:
+          type: string
+          example: host
+        summary:
+          type: string
+          example: "Host CPU utilization > 85%"
+        description:
+          type: string
+        state:
+          type: string
+          enum: [firing, pending]
+          example: firing
+        fired_at:
+          type: string
+          format: date-time
+        last_value:
+          type: number
+          example: 89.2
+
+    AlertRule:
+      type: object
+      required:
+        - name
+        - kind
+        - severity
+        - target
+        - condition_json
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "Host High CPU"
+        kind:
+          type: string
+          enum: [metric, container, log]
+          example: metric
+        target:
+          type: string
+          example: host
+        severity:
+          type: string
+          enum: [info, warning, critical]
+          example: warning
+        condition_json:
+          type: string
+          example: '{"metric":"cpu_utilization","operator":">","threshold":85}'
+        for_sec:
+          type: integer
+          description: Sustained duration before firing
+          default: 60
+        channels:
+          type: array
+          items:
+            type: string
+          example: ["discord"]
+        enabled:
+          type: boolean
+          default: true
+
+    AlertRuleWithState:
+      allOf:
+        - $ref: "#/components/schemas/AlertRule"
+        - type: object
+          properties:
+            live_state:
+              type: string
+              enum: [ok, pending, firing]
+              example: ok
+            active_targets:
+              type: integer
+              example: 0
+            last_fired:
+              type: string
+              format: date-time
+              nullable: true
+
+    StarterTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "host_high_cpu"
+        name:
+          type: string
+          example: "Host High CPU Usage"
+        description:
+          type: string
+          example: "Fires when overall CPU utilization exceeds 85% for 2 minutes"
+        rule:
+          $ref: "#/components/schemas/AlertRule"
+
+    RulePreviewRequest:
+      type: object
+      required:
+        - kind
+        - target
+        - severity
+        - condition_json
+      properties:
+        kind:
+          type: string
+          enum: [metric, container, log]
+        target:
+          type: string
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        condition_json:
+          type: string
+        for_sec:
+          type: integer
+          default: 60
+        channels:
+          type: array
+          items:
+            type: string
+
+    RulePreviewResponse:
+      type: object
+      properties:
+        would_fire_now:
+          type: boolean
+          example: false
+        matched_targets:
+          type: array
+          items:
+            type: object
+            properties:
+              target:
+                type: string
+              value:
+                type: number
+              summary:
+                type: string
+        recent_matches_24h:
+          type: integer
+          example: 3
+        sample_lines:
+          type: array
+          items:
+            type: string
+
+    RulesExportBundle:
+      type: object
+      required:
+        - version
+        - rules
+      properties:
+        version:
+          type: integer
+          example: 1
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertRule"
+
+    ImportRulesResponse:
+      type: object
+      properties:
+        imported:
+          type: integer
+          example: 5
+        updated:
+          type: integer
+          example: 1
+        mode:
+          type: string
+          example: merge
+
+    AlertEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 42
+        rule_id:
+          type: integer
+          example: 1
+        rule_name:
+          type: string
+          example: "Host High CPU"
+        target:
+          type: string
+          example: host
+        status:
+          type: string
+          enum: [firing, resolved]
+          example: firing
+        summary:
+          type: string
+          example: "CPU utilization reached 92%"
+        timestamp:
+          type: string
+          format: date-time
+
+    TestAlertNotificationRequest:
+      type: object
+      required:
+        - channel
+      properties:
+        channel:
+          type: string
+          enum: [discord, email]
+          example: discord
+
+    CleanupRunSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 12
+        trigger:
+          type: string
+          enum: [scheduled, manual]
+          example: scheduled
+        dry_run:
+          type: boolean
+          example: false
+        status:
+          type: string
+          enum: [running, completed, failed]
+          example: completed
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        logs_deleted:
+          type: integer
+          example: 14
+        bytes_reclaimed:
+          type: integer
+          example: 9437184
+
+    CleanupReportResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 12
+        report_markdown:
+          type: string
+        report_html:
+          type: string
+
+    CleanupRunRequest:
+      type: object
+      properties:
+        dry_run:
+          type: boolean
+          default: false
+
+    CleanupRunResult:
+      type: object
+      properties:
+        status:
+          type: string
+          example: completed
+        dry_run:
+          type: boolean
+          example: false
+        logs_deleted:
+          type: integer
+          example: 0
+        bytes_reclaimed:
+          type: integer
+          example: 0
+
+    CleanupPreviewResponse:
+      type: object
+      properties:
+        expired_chunks_count:
+          type: integer
+          example: 6
+        estimated_bytes_reclaim:
+          type: integer
+          example: 393216
+        estimated_lines_count:
+          type: integer
+          example: 1420

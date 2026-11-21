@@ -4,10 +4,11 @@ project_name: tarsier
 
 before:
   hooks:
-    - go mod tidy
+    - sh -c "cd tarsier && go mod tidy"
 
 builds:
   - id: tarsier
+    dir: tarsier
     main: ./cmd/tarsier
     binary: tarsier
     env:
@@ -36,6 +37,7 @@ archives:
       - goos: windows
         format: zip
     files:
+      - LICENSE
       - Readme.md
       - tarsier.example.yaml
       - docker-compose.yml

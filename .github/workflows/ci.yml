@@ -23,10 +23,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: 'tarsier/go.mod'
+          cache-dependency-path: 'tarsier/go.sum'
           cache: true
 
       - name: Check code formatting
+        working-directory: tarsier
         run: |
           UNFORMATTED=$(gofmt -l .)
           if [ -n "$UNFORMATTED" ]; then
@@ -35,10 +37,12 @@ jobs:
           fi
 
       - name: Run go vet
+        working-directory: tarsier
         run: go vet ./...
 
       - name: Run unit tests with race detector
-        run: go test -race -v -coverprofile=coverage.out ./...
+        working-directory: tarsier
+        run: go test -race -v -coverprofile=../coverage.out ./...
 
   docker-smoke:
     name: Docker Build Smoke Test
