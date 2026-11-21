@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -93,18 +94,26 @@ func (s *Server) previewMetricRule(resp *RulePreviewResponse, compiled *alert.Co
 	if compiled.Target == "host" {
 		targets = []string{"host"}
 	} else {
+		seen := make(map[string]struct{})
 		for _, ent := range s.hotCache.EntitiesWithMetric(metric) {
 			if compiled.MatchesTarget(ent) {
-				targets = append(targets, ent)
+				if _, ok := seen[ent]; !ok {
+					seen[ent] = struct{}{}
+					targets = append(targets, ent)
+				}
 			}
 		}
 		if metric != cond.Metric {
 			for _, ent := range s.hotCache.EntitiesWithMetric(cond.Metric) {
 				if compiled.MatchesTarget(ent) {
-					targets = append(targets, ent)
+					if _, ok := seen[ent]; !ok {
+						seen[ent] = struct{}{}
+						targets = append(targets, ent)
+					}
 				}
 			}
 		}
+		sort.Strings(targets)
 	}
 
 	if len(targets) == 0 {
@@ -140,10 +149,15 @@ func (s *Server) previewMetricRule(resp *RulePreviewResponse, compiled *alert.Co
 
 		if breached {
 			resp.WouldFireNow = true
+			summary := fmt.Sprintf("%s %s is %.1f (%s %.1f)", target, metric, pt.Value, cond.Operator, cond.Threshold)
+			if compiled.ForSec > 0 {
+				summary = fmt.Sprintf("%s %s is %.1f (%s %.1f; requires %s sustained)",
+					target, metric, pt.Value, cond.Operator, cond.Threshold, alert.FormatDuration(compiled.ForSec))
+			}
 			resp.MatchedTargets = append(resp.MatchedTargets, MatchedTarget{
 				Target:  target,
 				Value:   pt.Value,
-				Summary: fmt.Sprintf("%s %s is %.1f (%s %.1f)", target, metric, pt.Value, cond.Operator, cond.Threshold),
+				Summary: summary,
 			})
 		}
 	}

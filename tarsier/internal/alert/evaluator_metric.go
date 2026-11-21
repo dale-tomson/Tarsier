@@ -211,79 +211,39 @@ func (e *MetricEvaluator) evaluateTarget(rule *CompiledRule, target string, now 
 	cond := rule.MetricCond
 	metric := NormalizeMetricName(cond.Metric)
 
-	if rule.ForSec <= 0 {
-		// Instant evaluation: fetch newest point
-		pt, ok := e.hotCache.GetLatest(target, metric)
-		if !ok && metric != cond.Metric {
-			pt, ok = e.hotCache.GetLatest(target, cond.Metric)
-		}
-		if !ok || (now.Unix()-pt.TS > 60) {
-			// Skip if no point or point is older than 60s
-			return false, 0, "", nil, false
-		}
-
-		breached := compareFloat(pt.Value, cond.Operator, cond.Threshold)
-		summary := fmt.Sprintf("%s %s is %.1f (%s %.1f)", target, metric, pt.Value, cond.Operator, cond.Threshold)
-		details := map[string]string{
-			"target":    target,
-			"metric":    metric,
-			"value":     fmt.Sprintf("%.1f", pt.Value),
-			"threshold": fmt.Sprintf("%.1f", cond.Threshold),
-			"operator":  cond.Operator,
-		}
-		return breached, pt.Value, summary, details, true
-	}
-
-	// Sustained evaluation window
-	sinceTS := now.Unix() - int64(rule.ForSec)
-	stats, ok := e.hotCache.EvalWindow(target, metric, sinceTS)
+	// Point-in-time evaluation: fetch newest point; StateMachine.Observe handles ForSec duration holds.
+	pt, ok := e.hotCache.GetLatest(target, metric)
 	if !ok && metric != cond.Metric {
-		stats, ok = e.hotCache.EvalWindow(target, cond.Metric, sinceTS)
+		pt, ok = e.hotCache.GetLatest(target, cond.Metric)
 	}
-	if !ok {
+	if !ok || (now.Unix()-pt.TS > 60) {
+		// Skip if no point or point is older than 60s
 		return false, 0, "", nil, false
 	}
 
-	// Require minimum sample count spanning the window
-	minCount := rule.ForSec / 15
-	if minCount < 2 {
-		minCount = 2
-	}
-	if stats.Count < minCount {
-		// Window not sufficiently populated yet
-		return false, stats.Avg, "", nil, false
-	}
+	breached := compareFloat(pt.Value, cond.Operator, cond.Threshold)
 
-	var breached bool
-	switch cond.Operator {
-	case ">", ">=":
-		// All samples in window violated threshold: Min > Threshold
-		breached = compareFloat(stats.Min, cond.Operator, cond.Threshold)
-	case "<", "<=":
-		// All samples in window violated threshold: Max < Threshold
-		breached = compareFloat(stats.Max, cond.Operator, cond.Threshold)
-	case "==":
-		breached = stats.Min == cond.Threshold && stats.Max == cond.Threshold
-	default:
-		breached = false
+	var summary string
+	if rule.ForSec > 0 {
+		summary = fmt.Sprintf("%s %s is %.1f (%s %.1f for %s)",
+			target, metric, pt.Value, cond.Operator, cond.Threshold, FormatDuration(rule.ForSec))
+	} else {
+		summary = fmt.Sprintf("%s %s is %.1f (%s %.1f)",
+			target, metric, pt.Value, cond.Operator, cond.Threshold)
 	}
-
-	summary := fmt.Sprintf("%s %s is %.1f (%s %.1f for %s)",
-		target, metric, stats.Avg, cond.Operator, cond.Threshold, formatDuration(rule.ForSec))
 
 	details := map[string]string{
 		"target":    target,
 		"metric":    metric,
-		"avg":       fmt.Sprintf("%.1f", stats.Avg),
-		"min":       fmt.Sprintf("%.1f", stats.Min),
-		"max":       fmt.Sprintf("%.1f", stats.Max),
-		"samples":   fmt.Sprintf("%d", stats.Count),
+		"value":     fmt.Sprintf("%.1f", pt.Value),
 		"threshold": fmt.Sprintf("%.1f", cond.Threshold),
 		"operator":  cond.Operator,
-		"for":       formatDuration(rule.ForSec),
+	}
+	if rule.ForSec > 0 {
+		details["for"] = FormatDuration(rule.ForSec)
 	}
 
-	return breached, stats.Avg, summary, details, true
+	return breached, pt.Value, summary, details, true
 }
 
 func compareFloat(val float64, op string, threshold float64) bool {
@@ -303,7 +263,8 @@ func compareFloat(val float64, op string, threshold float64) bool {
 	}
 }
 
-func formatDuration(sec int) string {
+// FormatDuration formats a duration in seconds into a compact human-readable label.
+func FormatDuration(sec int) string {
 	if sec%3600 == 0 && sec >= 3600 {
 		return fmt.Sprintf("%dh", sec/3600)
 	}

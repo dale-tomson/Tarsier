@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -291,6 +292,34 @@ func TestAlertsAPI_TemplatesAndPreview(t *testing.T) {
 	}
 	if len(previewResp.MatchedTargets) != 1 {
 		t.Errorf("expected 1 matched target, got %d", len(previewResp.MatchedTargets))
+	}
+
+	// 2b. Sustained metric preview notes required duration in summary
+	sustainedPreviewPayload := `{
+		"kind": "metric",
+		"target": "host",
+		"severity": "critical",
+		"condition_json": "{\"metric\":\"host_cpu_pct\",\"operator\":\">\",\"threshold\":80.0}",
+		"for_sec": 300
+	}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/alerts/rules/preview", bytes.NewBufferString(sustainedPreviewPayload))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview sustained metric: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var sustainedResp RulePreviewResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &sustainedResp); err != nil {
+		t.Fatalf("failed to decode sustained preview resp: %v", err)
+	}
+	if !sustainedResp.WouldFireNow || len(sustainedResp.MatchedTargets) != 1 {
+		t.Fatalf("expected would_fire_now=true and 1 matched target, got %+v", sustainedResp)
+	}
+	if !strings.Contains(sustainedResp.MatchedTargets[0].Summary, "5m") {
+		t.Errorf("expected sustained duration 5m in summary, got %q", sustainedResp.MatchedTargets[0].Summary)
 	}
 
 	// 3. Log preview with tail cache
