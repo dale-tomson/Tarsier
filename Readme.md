@@ -19,7 +19,7 @@
 **Tarsier** is a single-server observability engine and web dashboard engineered for VPS nodes, homelabs, and edge deployments where monitoring tooling must never starve primary workloads. Packaged as a single static Go binary (`CGO_ENABLED=0`) and container image targeting **`< 256 MB` RAM** (`GOMEMLIMIT=200MiB`), it combines host telemetry, Docker container monitoring, compressed log chunk storage with fast search, in-memory alerting, automated database compaction, and pre-cleanup digest reports into one self-contained service with zero external dependencies.
 
 <p align="center">
-  <img src="wiki/images/02-overview-dashboard.png" alt="Tarsier Overview Dashboard" width="100%">
+  <img src="docs/wiki/images/02-overview-dashboard.png" alt="Tarsier Overview Dashboard" width="100%">
 </p>
 
 ---
@@ -131,13 +131,14 @@ Full operational and developer documentation is maintained in the [GitHub Wiki](
 
 | Guide | Description |
 |---|---|
-| [Quickstart & Deployment](wiki/01-Quickstart-and-Deployment.md) | Docker Compose, standalone binary, systemd service, and reverse proxy setups (Nginx, Caddy, Traefik). |
-| [Configuration & Operations](wiki/02-Configuration-and-Operations.md) | Complete `tarsier.yaml` reference, environment expansion, and operational troubleshooting playbooks. |
-| [Host & Container Monitoring](wiki/03-Host-and-Container-Monitoring.md) | Telemetry collection mechanics, container metrics streaming, and multi-tier downsampler architecture. |
-| [Log Search & Retention](wiki/04-Log-Search-and-Retention.md) | Format detection heuristics, 64 KB Zstd chunk format, Boyer-Moore search, and compaction mechanics. |
-| [Alerting & Notifications](wiki/05-Alerting-and-Notifications.md) | Rule persistence in `config.db`, state machine hysteresis, Discord webhook, and SMTP configuration. |
-| [REST API & Automation](wiki/06-REST-API-and-Automation.md) | OpenAPI 3.1.0 specification, session authentication, and integration with Postman/Bruno/curl. |
-| [Developer Internals](wiki/07-Developer-Internals-and-Contributing.md) | Architecture deep dive, SQLite WAL single-writer concurrency, testing standards, and PR workflows. |
+| [Quickstart & Deployment](docs/wiki/01-Quickstart-and-Deployment.md) | Docker Compose, standalone binary, systemd service, and reverse proxy setups (Nginx, Caddy, Traefik). |
+| [Configuration & Operations](docs/wiki/02-Configuration-and-Operations.md) | Complete `tarsier.yaml` reference, environment expansion, and operational troubleshooting playbooks. |
+| [Host & Container Monitoring](docs/wiki/03-Host-and-Container-Monitoring.md) | Telemetry collection mechanics, container metrics streaming, and multi-tier downsampler architecture. |
+| [Log Search & Retention](docs/wiki/04-Log-Search-and-Retention.md) | Format detection heuristics, 64 KB Zstd chunk format, Boyer-Moore search, and compaction mechanics. |
+| [Alerting & Notifications](docs/wiki/05-Alerting-and-Notifications.md) | Rule persistence in `config.db`, state machine hysteresis, Discord webhook, and SMTP configuration. |
+| [REST API & Automation](docs/wiki/06-REST-API-and-Automation.md) | OpenAPI 3.1.0 specification, session authentication, and integration with Postman/Bruno/curl. |
+| [Developer Internals](docs/wiki/07-Developer-Internals-and-Contributing.md) | Architecture deep dive, SQLite WAL single-writer concurrency, testing standards, and PR workflows. |
+| [Future Features](docs/wiki/Future-Features.md) | High-level roadmap and architectural overview of selected upcoming capabilities. |
 
 ---
 

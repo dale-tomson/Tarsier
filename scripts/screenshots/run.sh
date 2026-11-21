@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-OUTPUT_DIR="${REPO_ROOT}/wiki/images"
+OUTPUT_DIR="${REPO_ROOT}/docs/wiki/images"
 
 mkdir -p "${OUTPUT_DIR}"
 

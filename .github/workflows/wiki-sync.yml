@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'wiki/**'
+      - 'docs/wiki/**'
   workflow_dispatch:
 
 permissions:
@@ -36,7 +36,7 @@ jobs:
         run: |
           shopt -s dotglob
           find wiki-repo -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-          cp -R main-repo/wiki/* wiki-repo/
+          cp -R main-repo/docs/wiki/* wiki-repo/
 
       - name: Commit and push updated wiki pages
         working-directory: wiki-repo
