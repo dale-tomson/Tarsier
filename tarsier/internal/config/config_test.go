@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -93,9 +94,22 @@ func TestExpandEnv(t *testing.T) {
 	}
 }
 
+func findConfigFile(filename string) string {
+	candidates := []string{
+		filepath.Join("..", "..", filename),
+		filepath.Join("..", "..", "..", filename),
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return filepath.Join("..", "..", "..", filename)
+}
+
 func TestLoadConfig_Table(t *testing.T) {
 	t.Run("load example config file", func(t *testing.T) {
-		cfgPath := filepath.Join("..", "..", "tarsier.example.yaml")
+		cfgPath := findConfigFile("tarsier.example.yaml")
 		cfg, err := Load(cfgPath)
 		if err != nil {
 			t.Fatalf("failed to load tarsier.example.yaml: %v", err)
@@ -119,7 +133,7 @@ func TestLoadConfig_Table(t *testing.T) {
 	})
 
 	t.Run("load local config file", func(t *testing.T) {
-		cfgPath := filepath.Join("..", "..", "tarsier.yaml")
+		cfgPath := findConfigFile("tarsier.yaml")
 		cfg, err := Load(cfgPath)
 		if err != nil {
 			t.Fatalf("failed to load tarsier.yaml: %v", err)

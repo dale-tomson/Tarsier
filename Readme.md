@@ -11,7 +11,7 @@
 <p align="center">
   <a href="#beta-notice"><img src="https://img.shields.io/badge/status-beta-orange.svg" alt="Status: Beta"></a>
   <a href="https://golang.org"><img src="https://img.shields.io/badge/go-1.27-blue.svg" alt="Go Version"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
   <a href="#architectural-principles"><img src="https://img.shields.io/badge/cgo-disabled-success.svg" alt="Zero CGO"></a>
   <a href="#embedded-dashboard"><img src="https://img.shields.io/badge/node.js-none-success.svg" alt="Zero Node"></a>
 </p>
@@ -22,7 +22,7 @@
 
 <a name="beta-notice"></a>
 > [!WARNING]
-> ### ⚠️ BETA SOFTWARE — NOT READY FOR PRODUCTION USE
+> ### BETA SOFTWARE — NOT READY FOR PRODUCTION USE
 > **Tarsier is currently in active Beta status.** Core architectural systems and functional modules are implemented and tested, but breaking changes to configuration schemas, REST API contracts, and on-disk storage layouts may occur before a stable `v1.0.0` release.
 > 
 > **Do not deploy Tarsier as your sole or critical production monitoring system.** Experimental deployments and feedback on VPS/homelab single-node environments are welcome.
@@ -362,16 +362,19 @@ git clone https://github.com/dale-tomson/Tarsier.git
 cd Tarsier
 
 # Run test suite with race detector
-CGO_ENABLED=0 go test -race ./...
+make test
+# Or directly inside the tarsier module:
+cd tarsier && CGO_ENABLED=0 go test -race ./... && cd ..
 
 # Build single static binary
-CGO_ENABLED=0 go build -ldflags="-s -w" -o tarsier ./cmd/tarsier
+make build
+# Output binary is generated at bin/tarsier
 
 # Validate configuration file
-./tarsier -test-config -config ./tarsier.yaml
+./bin/tarsier -test-config -config ./tarsier.yaml
 
 # Run binary directly
-./tarsier -config ./tarsier.yaml
+./bin/tarsier -config ./tarsier.yaml
 ```
 
 ### Building the Docker Container Image
@@ -393,6 +396,17 @@ The build uses a two-stage `Dockerfile`:
 
 ---
 
+## API & OpenAPI Documentation
+
+Tarsier exposes an authenticated REST API under `/api/v1` along with public `/healthz` endpoints.
+A complete, self-contained OpenAPI 3.1.0 specification is available at [`docs/openapi.yaml`](docs/openapi.yaml).
+
+* **View in Browser / Editor:** Open `docs/openapi.yaml` in Swagger Editor, VS Code OpenAPI Viewer, or ReDoc.
+* **API Testing Tools:** Import `docs/openapi.yaml` directly into Postman, Bruno, or Insomnia to execute tests against your Tarsier instance.
+* For more information and usage instructions, see [`docs/README.md`](docs/README.md).
+
+---
+
 ## Security Recommendations
 
 1. **Reverse Proxy & HTTPS:** Tarsier does not terminate TLS natively; always place it behind Caddy, Nginx, or Traefik with automatic HTTPS certificates enabled.
@@ -404,4 +418,4 @@ The build uses a two-stage `Dockerfile`:
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [GNU Affero General Public License v3](LICENSE).

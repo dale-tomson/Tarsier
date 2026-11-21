@@ -19,18 +19,18 @@ all: test build
 
 build:
 	@mkdir -p bin
-	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o bin/tarsier ./cmd/tarsier
+	cd tarsier && CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o ../bin/tarsier ./cmd/tarsier
 
 build-all:
 	@mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o bin/tarsier-linux-amd64 ./cmd/tarsier
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="$(LDFLAGS)" -o bin/tarsier-linux-arm64 ./cmd/tarsier
+	cd tarsier && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o ../bin/tarsier-linux-amd64 ./cmd/tarsier
+	cd tarsier && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="$(LDFLAGS)" -o ../bin/tarsier-linux-arm64 ./cmd/tarsier
 
 test:
-	go test -race -v ./...
+	cd tarsier && go test -race -v ./...
 
 test-cover:
-	go test -race -coverprofile=coverage.out ./...
+	cd tarsier && go test -race -coverprofile=../coverage.out ./...
 	go tool cover -func=coverage.out
 
 docker-build:

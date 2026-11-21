@@ -4,15 +4,15 @@ FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS builder
 
 RUN apk add --no-cache ca-certificates tzdata git
 
-WORKDIR /build
+WORKDIR /build/tarsier
 
 # Cache dependency downloads with BuildKit cache mount
-COPY go.mod go.sum* ./
+COPY tarsier/go.mod tarsier/go.sum* ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 # Copy source tree
-COPY . .
+COPY tarsier/ .
 
 # Minify web assets at image build time (preserves clean/formatted source in repo)
 RUN --mount=type=cache,target=/go/pkg/mod \
