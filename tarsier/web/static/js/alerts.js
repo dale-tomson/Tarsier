@@ -296,10 +296,18 @@
       },
 
       setKind(kind) {
+        const prevKind = this.ruleForm.kind;
         this.stepError = '';
         this.ruleForm.kind = kind;
         if (kind === 'container' && this.ruleForm.target === 'host') {
           this.selectTargetMode('all_containers');
+        }
+        if (!this.isEditing) {
+          if (kind === 'log' && Number(this.ruleForm.for_sec) === 30) {
+            this.ruleForm.for_sec = 0;
+          } else if (prevKind === 'log' && kind !== 'log' && Number(this.ruleForm.for_sec) === 0) {
+            this.ruleForm.for_sec = 30;
+          }
         }
         this.syncDefaultNameIfAuto();
       },
