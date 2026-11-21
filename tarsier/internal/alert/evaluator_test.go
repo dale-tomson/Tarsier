@@ -129,7 +129,7 @@ func TestMetricEvaluator_ThresholdAndForDuration(t *testing.T) {
 	}
 	sink.Clear()
 
-	// Step 2: t=10s, push 92% (breach starts)
+	// Step 2: t=10s, push 92% (breach starts for both instant and sustained rules at point-in-time)
 	clock.Advance(10 * time.Second)
 	hotCache.Record(model.MetricSample{
 		Entity: "host", Metric: "cpu_pct", Value: 92.0, TS: clock.Now().Unix(),
@@ -137,62 +137,60 @@ func TestMetricEvaluator_ThresholdAndForDuration(t *testing.T) {
 	evaluator.EvalOnce(ctx)
 
 	obs = sink.Observations()
-	var instantFired, sustainedFired bool
-	for _, o := range obs {
+	var instantObs, sustainedObs *EvalObservation
+	for i := range obs {
+		o := &obs[i]
 		if o.Rule.ID == rInstant.ID && o.Breached {
-			instantFired = true
+			instantObs = o
 		}
 		if o.Rule.ID == rSustained.ID && o.Breached {
-			sustainedFired = true
+			sustainedObs = o
 		}
 	}
-	if !instantFired {
-		t.Error("t=10s: expected host-cpu-instant to breach")
+	if instantObs == nil {
+		t.Fatal("t=10s: expected host-cpu-instant to emit point-in-time breach")
 	}
-	if sustainedFired {
-		t.Error("t=10s: host-cpu-sustained should NOT breach yet (only 1 sample, window 30s not met)")
+	if instantObs.Summary != "host cpu_pct is 92.0 (> 85.0)" {
+		t.Errorf("t=10s: unexpected instant summary: %q", instantObs.Summary)
+	}
+	if instantObs.Details["value"] != "92.0" || instantObs.Details["for"] != "" {
+		t.Errorf("t=10s: unexpected instant details: %+v", instantObs.Details)
+	}
+	if sustainedObs == nil {
+		t.Fatal("t=10s: expected host-cpu-sustained to emit point-in-time breach so StateMachine can enter StatePending")
+	}
+	if sustainedObs.Summary != "host cpu_pct is 92.0 (> 85.0 for 30s)" {
+		t.Errorf("t=10s: unexpected sustained summary: %q", sustainedObs.Summary)
+	}
+	if sustainedObs.Details["value"] != "92.0" || sustainedObs.Details["for"] != "30s" ||
+		sustainedObs.Details["threshold"] != "85.0" || sustainedObs.Details["operator"] != ">" {
+		t.Errorf("t=10s: unexpected sustained details: %+v", sustainedObs.Details)
 	}
 	sink.Clear()
 
-	// Step 3: t=20s (91%), t=30s (94%), t=40s (93%) -> sustained 30s window satisfied at t=40s
-	clock.Advance(10 * time.Second) // t=20s
-	hotCache.Record(model.MetricSample{
-		Entity: "host", Metric: "cpu_pct", Value: 91.0, TS: clock.Now().Unix(),
-	})
-	evaluator.EvalOnce(ctx)
-	sink.Clear()
+	// Step 3: t=20s (91%), t=30s (94%), t=40s (93%) -> sustained continues emitting point-in-time breaches on each tick
+	for _, val := range []float64{91.0, 94.0, 93.0} {
+		clock.Advance(10 * time.Second)
+		hotCache.Record(model.MetricSample{
+			Entity: "host", Metric: "cpu_pct", Value: val, TS: clock.Now().Unix(),
+		})
+		evaluator.EvalOnce(ctx)
 
-	clock.Advance(10 * time.Second) // t=30s
-	hotCache.Record(model.MetricSample{
-		Entity: "host", Metric: "cpu_pct", Value: 94.0, TS: clock.Now().Unix(),
-	})
-	evaluator.EvalOnce(ctx)
-
-	// At t=30s, breach duration is 20s (from t=10s to t=30s), so sustained 30s must NOT fire yet
-	for _, o := range sink.Observations() {
-		if o.Rule.ID == rSustained.ID && o.Breached {
-			t.Errorf("t=30s: host-cpu-sustained should not fire yet at 20s breach duration: %+v", o)
+		var gotInstant, gotSustained bool
+		for _, o := range sink.Observations() {
+			if o.Rule.ID == rInstant.ID && o.Breached && o.Value == val {
+				gotInstant = true
+			}
+			if o.Rule.ID == rSustained.ID && o.Breached && o.Value == val {
+				gotSustained = true
+			}
 		}
-	}
-	sink.Clear()
-
-	clock.Advance(10 * time.Second) // t=40s
-	hotCache.Record(model.MetricSample{
-		Entity: "host", Metric: "cpu_pct", Value: 93.0, TS: clock.Now().Unix(),
-	})
-	evaluator.EvalOnce(ctx)
-
-	obs = sink.Observations()
-	sustainedFired = false
-	for _, o := range obs {
-		if o.Rule.ID == rSustained.ID && o.Breached {
-			sustainedFired = true
+		if !gotInstant || !gotSustained {
+			t.Errorf("t=%v: expected both rules to emit breach for value %.1f, got instant=%v sustained=%v",
+				clock.Now(), val, gotInstant, gotSustained)
 		}
+		sink.Clear()
 	}
-	if !sustainedFired {
-		t.Error("t=40s: expected host-cpu-sustained to breach after full 30s sustained window")
-	}
-	sink.Clear()
 
 	// Step 4: t=50s, push 45% (recovery)
 	clock.Advance(10 * time.Second) // t=50s
@@ -216,6 +214,145 @@ func TestMetricEvaluator_ThresholdAndForDuration(t *testing.T) {
 	}
 	if !sustainedRecovered {
 		t.Error("t=50s: expected host-cpu-sustained to emit recovery observation (Breached: false)")
+	}
+}
+
+func TestMetricEvaluator_WithStateMachine_SustainedDuration(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbStore, err := db.Open(context.Background(), tmpDir)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer dbStore.Close()
+
+	ruleStore := NewRuleStore(dbStore.Config)
+	ctx := context.Background()
+
+	rule, err := ruleStore.CreateRule(ctx, AlertRule{
+		Name:          "host-cpu-sustained-60s",
+		Kind:          "metric",
+		Enabled:       true,
+		Severity:      "critical",
+		Target:        "host",
+		ConditionJSON: `{"metric":"cpu_pct","operator":">","threshold":85.0}`,
+		ForSec:        60,
+		CooldownSec:   300,
+		Channels:      []string{"discord"},
+	})
+	if err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+
+	ruleCache := NewRuleCache(ruleStore)
+	if err := ruleCache.Reload(ctx); err != nil {
+		t.Fatalf("cache.Reload: %v", err)
+	}
+
+	hotCache := metrics.NewHotCache(100, 180)
+	startTime := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	clock := newFakeClock(startTime)
+	disp := &mockDispatcher{}
+
+	sm := NewStateMachine(ruleCache, ruleStore, dbStore.Config, disp, clock)
+	evaluator := NewMetricEvaluator(ruleCache, hotCache, sm, clock)
+
+	// t=0s: initial breach transitions StateOK -> StatePending (0 notifications)
+	hotCache.Record(model.MetricSample{
+		Entity: "host", Metric: "cpu_pct", Value: 92.0, TS: clock.Now().Unix(),
+	})
+	evaluator.EvalOnce(ctx)
+
+	states := sm.AllStates()
+	if len(states) != 1 || states[0].RuleID != rule.ID || states[0].State != StatePending {
+		t.Fatalf("t=0s: expected 1 StatePending state, got %+v", states)
+	}
+	if len(disp.Notifications()) != 0 {
+		t.Fatalf("t=0s: expected 0 notifications, got %d", len(disp.Notifications()))
+	}
+
+	// t=30s: sustained breach remains in StatePending (0 notifications)
+	clock.Advance(30 * time.Second)
+	hotCache.Record(model.MetricSample{
+		Entity: "host", Metric: "cpu_pct", Value: 94.0, TS: clock.Now().Unix(),
+	})
+	evaluator.EvalOnce(ctx)
+
+	states = sm.AllStates()
+	if len(states) != 1 || states[0].State != StatePending {
+		t.Fatalf("t=30s: expected StatePending, got %+v", states)
+	}
+	if len(disp.Notifications()) != 0 {
+		t.Fatalf("t=30s: expected 0 notifications, got %d", len(disp.Notifications()))
+	}
+
+	// t=60s: after 60s sustained breach, transitions to StateFiring and dispatches notification
+	clock.Advance(30 * time.Second)
+	hotCache.Record(model.MetricSample{
+		Entity: "host", Metric: "cpu_pct", Value: 96.0, TS: clock.Now().Unix(),
+	})
+	evaluator.EvalOnce(ctx)
+
+	states = sm.AllStates()
+	if len(states) != 1 || states[0].State != StateFiring {
+		t.Fatalf("t=60s: expected StateFiring, got %+v", states)
+	}
+	notifs := disp.Notifications()
+	if len(notifs) != 1 {
+		t.Fatalf("t=60s: expected 1 notification, got %d", len(notifs))
+	}
+	if notifs[0].State != "firing" || notifs[0].Rule != rule.Name || notifs[0].Target != "host" {
+		t.Errorf("t=60s: unexpected notification payload: %+v", notifs[0])
+	}
+	if notifs[0].Details["for"] != "1m" {
+		t.Errorf("t=60s: expected notification details[\"for\"] == \"1m\", got %+v", notifs[0].Details)
+	}
+
+	// Recover at t=70s -> StateOK
+	disp.Clear()
+	clock.Advance(10 * time.Second)
+	hotCache.Record(model.MetricSample{
+		Entity: "host", Metric: "cpu_pct", Value: 45.0, TS: clock.Now().Unix(),
+	})
+	evaluator.EvalOnce(ctx)
+
+	if len(sm.AllStates()) != 0 {
+		t.Fatalf("t=70s: expected StateOK (0 active states) after recovery, got %+v", sm.AllStates())
+	}
+
+	// Transient breach & recovery before 60s resets state to StateOK with 0 notifications
+	clock.Advance(10 * time.Second) // t=80s (new breach start)
+	hotCache.Record(model.MetricSample{
+		Entity: "host", Metric: "cpu_pct", Value: 91.0, TS: clock.Now().Unix(),
+	})
+	evaluator.EvalOnce(ctx)
+
+	states = sm.AllStates()
+	if len(states) != 1 || states[0].State != StatePending {
+		t.Fatalf("t=80s: expected StatePending on transient breach start, got %+v", states)
+	}
+
+	clock.Advance(30 * time.Second) // t=110s (30s < 60s)
+	hotCache.Record(model.MetricSample{
+		Entity: "host", Metric: "cpu_pct", Value: 93.0, TS: clock.Now().Unix(),
+	})
+	evaluator.EvalOnce(ctx)
+
+	states = sm.AllStates()
+	if len(states) != 1 || states[0].State != StatePending {
+		t.Fatalf("t=110s: expected StatePending before 60s elapsed, got %+v", states)
+	}
+
+	clock.Advance(10 * time.Second) // t=120s (40s elapsed, recover before 60s)
+	hotCache.Record(model.MetricSample{
+		Entity: "host", Metric: "cpu_pct", Value: 50.0, TS: clock.Now().Unix(),
+	})
+	evaluator.EvalOnce(ctx)
+
+	if len(sm.AllStates()) != 0 {
+		t.Fatalf("t=120s: expected StateOK (0 active states) after transient recovery before 60s, got %+v", sm.AllStates())
+	}
+	if len(disp.Notifications()) != 0 {
+		t.Fatalf("t=120s: expected 0 notifications for transient breach, got %d", len(disp.Notifications()))
 	}
 }
 
