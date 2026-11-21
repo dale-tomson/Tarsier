@@ -20,19 +20,23 @@ jobs:
     name: Push Wiki Content to GitHub Wiki
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout main repository
         uses: actions/checkout@v4
+        with:
+          path: main-repo
 
-      - name: Clone target GitHub Wiki repository
-        run: |
-          WIKI_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git"
-          git clone "$WIKI_URL" wiki-repo
+      - name: Checkout wiki repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki-repo
+          token: ${{ secrets.WIKI_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Sync wiki markdown and images
         run: |
           shopt -s dotglob
           find wiki-repo -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-          cp -R wiki/* wiki-repo/
+          cp -R main-repo/wiki/* wiki-repo/
 
       - name: Commit and push updated wiki pages
         working-directory: wiki-repo
