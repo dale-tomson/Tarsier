@@ -885,7 +885,7 @@ paths:
   /api/v1/system/cleanup/{id}/report:
     get:
       summary: Retrieve pre-cleanup digest report
-      description: Returns the generated Markdown or sandboxed HTML digest report for a specific cleanup cycle.
+      description: Returns the generated plain-text or sandboxed HTML digest report for a specific cleanup cycle.
       tags:
         - Retention & Cleanup
       security:
@@ -899,10 +899,10 @@ paths:
             type: integer
         - name: format
           in: query
-          description: Desired response format (`html`, `markdown`, or `json`)
+          description: Desired response format (`html`, `text`, or `json`)
           schema:
             type: string
-            enum: [html, markdown, json]
+            enum: [html, text, json]
             default: json
       responses:
         "200":
@@ -911,7 +911,7 @@ paths:
             text/html:
               schema:
                 type: string
-            text/markdown:
+            text/plain:
               schema:
                 type: string
             application/json:
@@ -958,7 +958,7 @@ paths:
   /api/v1/system/cleanup/template:
     get:
       summary: Download cleanup report template
-      description: Returns the active Markdown template used to render pre-cleanup reports.
+      description: Returns the active plain-text template used to render pre-cleanup reports.
       tags:
         - Retention & Cleanup
       security:
@@ -1724,7 +1724,7 @@ components:
         id:
           type: integer
           example: 12
-        report_markdown:
+        report_text:
           type: string
         report_html:
           type: string

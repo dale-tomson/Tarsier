@@ -127,6 +127,35 @@ func NewCleanupManager(cfg CleanupManagerConfig) (*CleanupManager, error) {
 	}, nil
 }
 
+// FormatSummaryBody formats the concise plain-text summary body for notification emails and Discord embeds.
+func FormatSummaryBody(report PreCleanupReport, trigger string) string {
+	mode := "Auto"
+	if strings.EqualFold(trigger, "manual") {
+		mode = "Manual"
+	}
+
+	return fmt.Sprintf(
+		"Generated : %s\n"+
+			"Mode : %s\n"+
+			"Cleanup Window: From %s To %s\n\n"+
+			"Summary:\n"+
+			"Logs Lines Purged: %d\n"+
+			"    Errors: %d\n"+
+			"    Warnings: %d\n\n"+
+			"Disk Space Freed: %s\n"+
+			"Alerts Fired: %d",
+		report.GeneratedAt.Format("2006-01-02 15:04:05 MST"),
+		mode,
+		report.WindowStart.Format("2006-01-02 15:04:05"),
+		report.WindowEnd.Format("2006-01-02 15:04:05 MST"),
+		report.TotalLogsPurged,
+		report.TotalErrors,
+		report.TotalWarnings,
+		FormatBytes(report.TotalBytesReclaim),
+		report.AlertsFired,
+	)
+}
+
 // Run executes the complete 7-step cleanup lifecycle.
 func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (CleanupRunResult, error) {
 	if !m.running.CompareAndSwap(false, true) {
@@ -178,9 +207,9 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 		trigger, report.TotalLogsPurged, FormatBytes(report.TotalBytesReclaim), len(report.Sources))
 
 	// Render report
-	format := strings.ToLower(m.cfg.Cleanup.Report.Format)
-	if format == "" {
-		format = "markdown"
+	format := strings.ToLower(strings.TrimSpace(m.cfg.Cleanup.Report.Format))
+	if format != "html" {
+		format = "text"
 	}
 	result.ReportFormat = format
 
@@ -189,7 +218,7 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 		if format == "html" {
 			reportBytes, _, _ = m.templateEngine.RenderHTML(report, 0)
 		} else {
-			reportBytes, _, _ = m.templateEngine.RenderMarkdown(report, 0)
+			reportBytes, _, _ = m.templateEngine.RenderText(report, 0)
 		}
 	} else {
 		reportBytes = []byte(fmt.Sprintf("Pre-cleanup report: %d logs slated for purge", report.TotalLogsPurged))
@@ -198,15 +227,19 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 
 	// 3. Deliver Report (if !dryRun and Deliverer configured)
 	if !dryRun && m.deliverer != nil {
+		ext := "txt"
+		if format == "html" {
+			ext = "html"
+		}
+		summaryBody := FormatSummaryBody(report, trigger)
 		payload := ReportPayload{
 			Report:       report,
 			Format:       format,
-			Filename:     fmt.Sprintf("tarsier-precleanup-%s.%s", startedAt.Format("2006-01-02"), format),
-			BodyText:     result.ReportBody,
+			Filename:     fmt.Sprintf("tarsier-precleanup-%s.%s", startedAt.Format("2006-01-02"), ext),
+			BodyText:     summaryBody,
 			Attachment:   reportBytes,
 			SummaryTitle: fmt.Sprintf("Tarsier Pre-Cleanup Report (%s)", trigger),
-			SummaryBody: fmt.Sprintf("Slated to purge %d lines (%s) across %d sources.",
-				report.TotalLogsPurged, FormatBytes(report.TotalBytesReclaim), len(report.Sources)),
+			SummaryBody:  summaryBody,
 		}
 
 		delivery, dErr := m.deliverer.Deliver(ctx, payload, trigger == "emergency")

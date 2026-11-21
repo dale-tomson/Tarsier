@@ -214,7 +214,7 @@ func NewDefaultConfig() *Config {
 				OnFailure:             "proceed",
 				TopPatterns:           20,
 				SampleLinesPerPattern: 2,
-				Format:                "markdown",
+				Format:                "text",
 				Template:              "",
 				MaxAttachment:         "8MiB",
 			},

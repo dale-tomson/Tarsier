@@ -32,12 +32,12 @@ var (
 // ReportPayload encapsulates a rendered report and its metadata for notification dispatch.
 type ReportPayload struct {
 	Report       PreCleanupReport
-	Format       string // "markdown" | "html"
-	Filename     string // e.g., "tarsier-precleanup-2026-11-15.md" or ".html"
-	BodyText     string // Rendered Markdown or HTML content
+	Format       string // "text" | "html"
+	Filename     string // e.g., "tarsier-precleanup-2026-11-15.txt" or ".html"
+	BodyText     string // Summary body text or HTML content
 	Attachment   []byte // Rendered report bytes (already capped)
 	SummaryTitle string // Compact summary for Discord embed / Email subject
-	SummaryBody  string // Compact 4-6 line key stats summary
+	SummaryBody  string // Compact key stats summary
 }
 
 // ChannelDeliveryOutcome tracks the delivery result for a single channel.
@@ -329,13 +329,7 @@ func (s *DiscordReportSender) SendReport(ctx context.Context, payload ReportPayl
 		"title":       title,
 		"description": payload.SummaryBody,
 		"color":       3447003, // Blue
-		"fields": []map[string]any{
-			{"name": "Logs to Purge", "value": fmt.Sprintf("%d lines", payload.Report.TotalLogsPurged), "inline": true},
-			{"name": "Reclaimed Space", "value": FormatBytes(payload.Report.TotalBytesReclaim), "inline": true},
-			{"name": "Errors / Warnings", "value": fmt.Sprintf("%d / %d", payload.Report.TotalErrors, payload.Report.TotalWarnings), "inline": true},
-			{"name": "Alerts Fired", "value": fmt.Sprintf("%d", payload.Report.AlertsFired), "inline": true},
-		},
-		"timestamp": payload.Report.GeneratedAt.Format(time.RFC3339),
+		"timestamp":   payload.Report.GeneratedAt.Format(time.RFC3339),
 	}
 
 	content := ""
@@ -361,11 +355,11 @@ func (s *DiscordReportSender) SendReport(ctx context.Context, payload ReportPayl
 		if payload.Format == "html" {
 			filename = "tarsier-precleanup.html"
 		} else {
-			filename = "tarsier-precleanup.md"
+			filename = "tarsier-precleanup.txt"
 		}
 	}
 
-	contentType := "text/markdown"
+	contentType := "text/plain"
 	if payload.Format == "html" {
 		contentType = "text/html"
 	}
@@ -574,7 +568,7 @@ func (s *SMTPReportSender) SendReport(ctx context.Context, payload ReportPayload
 		if payload.Format == "html" {
 			filename = "tarsier-precleanup.html"
 		} else {
-			filename = "tarsier-precleanup.md"
+			filename = "tarsier-precleanup.txt"
 		}
 	}
 

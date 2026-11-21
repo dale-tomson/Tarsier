@@ -239,7 +239,7 @@ notifiers:
     # List of recipient email addresses.
     to: ["${SMTP_TO:-admin@example.com}"]
 
-  # Discord webhook delivery for rich embed alerts and Markdown digest summaries.
+  # Discord webhook delivery for rich embed alerts and plain-text digest summaries.
   discord:
     # Enable or disable Discord notifications.
     # Default: false
@@ -310,9 +310,9 @@ cleanup:
     sample_lines_per_pattern: 2
 
     # Delivery format for the digest report.
-    # Allowed values: "markdown" (ideal for Discord), "html" (for email).
-    # Default: "markdown"
-    format: "markdown"
+    # Allowed values: "text" (ideal for Discord), "html" (for email).
+    # Default: "text"
+    format: "text"
 
     # Optional path to a custom Go text/template file overriding the default report.
     # Leave empty ("") to use the embedded built-in template.

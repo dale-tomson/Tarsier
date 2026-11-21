@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -346,5 +347,83 @@ func TestCleanupManager_DryRunAndStrictBlock(t *testing.T) {
 	_ = store.Config.RO.QueryRow("SELECT status FROM cleanup_run WHERE id = ?", resStrict.ID).Scan(&dbStatus)
 	if dbStatus != "blocked" {
 		t.Errorf("expected db status 'blocked', got %q", dbStatus)
+	}
+}
+
+type payloadCapturingSender struct {
+	name    string
+	payload ReportPayload
+	called  bool
+}
+
+func (s *payloadCapturingSender) Name() string { return s.name }
+func (s *payloadCapturingSender) SendReport(_ context.Context, payload ReportPayload) error {
+	s.called = true
+	s.payload = payload
+	return nil
+}
+
+func TestCleanupManager_Run_TextDeliveryPayload(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	store, err := db.Open(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer store.Close()
+
+	cfg := config.NewDefaultConfig()
+	cfg.Storage.Path = tmpDir
+	cfg.Cleanup.Report.Channels = []string{"discord"}
+
+	reportBuilder, _ := NewReportBuilder(ReportBuilderConfig{
+		DataDir:   tmpDir,
+		MetricsRO: store.Metrics.RO,
+		ConfigRO:  store.Config.RO,
+	})
+	tmplEngine, err := NewTemplateEngine("", "")
+	if err != nil {
+		t.Fatalf("NewTemplateEngine: %v", err)
+	}
+
+	capSender := &payloadCapturingSender{name: "discord"}
+	deliverer := NewReportDeliverer(cfg.Cleanup.Report, []ReportSender{capSender})
+
+	mgr, err := NewCleanupManager(CleanupManagerConfig{
+		Config:         cfg,
+		Store:          store,
+		ReportBuilder:  reportBuilder,
+		TemplateEngine: tmplEngine,
+		Deliverer:      deliverer,
+	})
+	if err != nil {
+		t.Fatalf("NewCleanupManager: %v", err)
+	}
+
+	res, err := mgr.Run(ctx, "manual", false)
+	if err != nil {
+		t.Fatalf("mgr.Run failed: %v", err)
+	}
+	if res.ReportFormat != "text" {
+		t.Errorf("expected ReportFormat 'text', got %q", res.ReportFormat)
+	}
+	if !capSender.called {
+		t.Fatal("expected sender to be called")
+	}
+	if capSender.payload.Format != "text" {
+		t.Errorf("expected payload format 'text', got %q", capSender.payload.Format)
+	}
+	if !strings.HasSuffix(capSender.payload.Filename, ".txt") {
+		t.Errorf("expected .txt filename, got %q", capSender.payload.Filename)
+	}
+	if !strings.Contains(capSender.payload.SummaryBody, "Mode : Manual") {
+		t.Errorf("expected Mode : Manual in SummaryBody, got:\n%s", capSender.payload.SummaryBody)
+	}
+	if capSender.payload.BodyText != capSender.payload.SummaryBody {
+		t.Errorf("expected BodyText to equal SummaryBody")
+	}
+	if !strings.Contains(string(capSender.payload.Attachment), "Tarsier Pre-Cleanup Report") {
+		t.Errorf("expected full report in Attachment, got:\n%s", string(capSender.payload.Attachment))
 	}
 }

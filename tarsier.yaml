@@ -87,7 +87,7 @@ cleanup:
     on_failure: "proceed"
     top_patterns: 20
     sample_lines_per_pattern: 2
-    format: "markdown"
+    format: "text"
     template: ""
     max_attachment: "8MiB"
 

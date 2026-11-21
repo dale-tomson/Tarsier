@@ -52,7 +52,7 @@ When writing or modifying code, adhere strictly to these finalized architectural
       collector/     # Host (/proc, /sys) and hand-rolled Docker socket collectors
       logs/          # Zero-alloc timestamp/level detector, Zstd chunk writer, .idx binary search
       alert/         # Rule cache, evaluators, state machine, SMTP & Discord notifiers
-      cleanup/       # Retention worker, pre-cleanup report generator (Markdown/HTML)
+      cleanup/       # Retention worker, pre-cleanup report generator (Text/HTML)
       api/           # chi HTTP server, auth middleware, REST /api/v1 handlers
     web/             # index.html, ES modules, vendored petite-vue, Pico.css, uPlot
   deploy/            # Standalone deployment bundle (docker-compose.yml, install.sh, .env.example)

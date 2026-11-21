@@ -67,9 +67,9 @@ func TestReportDeliverer_RetryAndBestEffortProceed(t *testing.T) {
 	)
 
 	payload := ReportPayload{
-		Format:       "markdown",
-		Filename:     "test-report.md",
-		BodyText:     "# Test Report",
+		Format:       "text",
+		Filename:     "test-report.txt",
+		BodyText:     "Test Report Summary",
 		SummaryTitle: "Pre-Cleanup Summary",
 		SummaryBody:  "Purged 100 lines",
 	}
@@ -153,6 +153,7 @@ func TestDiscordReportSender_MultipartEmbedAndFile(t *testing.T) {
 	var receivedPayloadJSON string
 	var receivedFileContent string
 	var receivedFilename string
+	var receivedFileContentType string
 
 	client := &http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -171,6 +172,7 @@ func TestDiscordReportSender_MultipartEmbedAndFile(t *testing.T) {
 			if fErr == nil {
 				defer file.Close()
 				receivedFilename = header.Filename
+				receivedFileContentType = header.Header.Get("Content-Type")
 				contentBytes, _ := io.ReadAll(file)
 				receivedFileContent = string(contentBytes)
 			}
@@ -190,12 +192,12 @@ func TestDiscordReportSender_MultipartEmbedAndFile(t *testing.T) {
 	}, client)
 
 	payload := ReportPayload{
-		Format:       "markdown",
-		Filename:     "report-test.md",
-		BodyText:     "# Full Markdown Report Content",
-		Attachment:   []byte("# Full Markdown Report Content"),
+		Format:       "text",
+		Filename:     "report-test.txt",
+		BodyText:     "Summary body content",
+		Attachment:   []byte("Full Text Report Content"),
 		SummaryTitle: "Pre-Cleanup Report Ready",
-		SummaryBody:  "slated to purge 500 lines",
+		SummaryBody:  "Generated : 2026-11-15 12:00:00 UTC\nMode : Auto",
 		Report: PreCleanupReport{
 			TotalLogsPurged:   500,
 			TotalBytesReclaim: 1048576,
@@ -211,10 +213,13 @@ func TestDiscordReportSender_MultipartEmbedAndFile(t *testing.T) {
 		t.Fatalf("SendReport failed: %v", err)
 	}
 
-	if receivedFilename != "report-test.md" {
-		t.Errorf("expected filename report-test.md, got %q", receivedFilename)
+	if receivedFilename != "report-test.txt" {
+		t.Errorf("expected filename report-test.txt, got %q", receivedFilename)
 	}
-	if receivedFileContent != "# Full Markdown Report Content" {
+	if receivedFileContentType != "text/plain" {
+		t.Errorf("expected attachment content-type text/plain, got %q", receivedFileContentType)
+	}
+	if receivedFileContent != "Full Text Report Content" {
 		t.Errorf("unexpected file content: %s", receivedFileContent)
 	}
 
@@ -225,6 +230,21 @@ func TestDiscordReportSender_MultipartEmbedAndFile(t *testing.T) {
 
 	if parsedEmbed["content"] != "@admin " {
 		t.Errorf("expected mention content @admin , got %v", parsedEmbed["content"])
+	}
+
+	embeds, ok := parsedEmbed["embeds"].([]any)
+	if !ok || len(embeds) != 1 {
+		t.Fatalf("expected 1 embed in payload, got %v", parsedEmbed["embeds"])
+	}
+	embedMap, ok := embeds[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected embed object, got %T", embeds[0])
+	}
+	if embedMap["description"] != payload.SummaryBody {
+		t.Errorf("expected embed description %q, got %v", payload.SummaryBody, embedMap["description"])
+	}
+	if _, hasFields := embedMap["fields"]; hasFields {
+		t.Errorf("expected no redundant embed fields, got %v", embedMap["fields"])
 	}
 }
 
@@ -294,10 +314,10 @@ func TestSMTPReportSender_MultipartMixedAttachment(t *testing.T) {
 	}))
 
 	payload := ReportPayload{
-		Format:       "markdown",
-		Filename:     "tarsier-precleanup.md",
-		BodyText:     "# Pre-Cleanup Report Plain Body Text",
-		Attachment:   []byte("# Attached Report Bytes"),
+		Format:       "text",
+		Filename:     "tarsier-precleanup.txt",
+		BodyText:     "Pre-Cleanup Report Summary Body Text",
+		Attachment:   []byte("Attached Full Text Report Bytes"),
 		SummaryTitle: "Digest Notice",
 	}
 
@@ -355,8 +375,11 @@ func TestSMTPReportSender_MultipartMixedAttachment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed reading part 1: %v", err)
 	}
+	if ct := p1.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("expected part 1 Content-Type text/plain, got %q", ct)
+	}
 	p1Data, _ := io.ReadAll(p1)
-	if !strings.Contains(string(p1Data), "# Pre-Cleanup Report Plain Body Text") {
+	if !strings.Contains(string(p1Data), "Pre-Cleanup Report Summary Body Text") {
 		t.Errorf("part 1 did not contain expected body text: %s", string(p1Data))
 	}
 
@@ -365,9 +388,15 @@ func TestSMTPReportSender_MultipartMixedAttachment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed reading part 2: %v", err)
 	}
-	disp, _, _ := mime.ParseMediaType(p2.Header.Get("Content-Disposition"))
+	disp, params, _ := mime.ParseMediaType(p2.Header.Get("Content-Disposition"))
 	if disp != "attachment" {
 		t.Errorf("expected Content-Disposition attachment, got %q", disp)
+	}
+	if params["filename"] != "tarsier-precleanup.txt" {
+		t.Errorf("expected attachment filename tarsier-precleanup.txt, got %q", params["filename"])
+	}
+	if ct := p2.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("expected part 2 Content-Type text/plain, got %q", ct)
 	}
 
 	p2Raw, _ := io.ReadAll(p2)
@@ -379,8 +408,8 @@ func TestSMTPReportSender_MultipartMixedAttachment(t *testing.T) {
 		t.Fatalf("failed base64 decoding attachment: %v\nRaw: %s", dErr, string(p2Raw))
 	}
 
-	if string(decodedBytes) != "# Attached Report Bytes" {
-		t.Errorf("expected attachment '# Attached Report Bytes', got %q", string(decodedBytes))
+	if string(decodedBytes) != "Attached Full Text Report Bytes" {
+		t.Errorf("expected attachment 'Attached Full Text Report Bytes', got %q", string(decodedBytes))
 	}
 }
 
@@ -431,8 +460,8 @@ func TestSMTPReportSender_HangingServerDeadline(t *testing.T) {
 	defer cancel()
 
 	payload := ReportPayload{
-		Format:       "markdown",
-		Filename:     "report.md",
+		Format:       "text",
+		Filename:     "report.txt",
 		BodyText:     "Report body",
 		SummaryTitle: "Notice",
 	}
@@ -483,7 +512,7 @@ func TestSMTPReportSender_MissingSTARTTLSError(t *testing.T) {
 	defer cancel()
 
 	err := sender.SendReport(ctx, ReportPayload{
-		Format:       "markdown",
+		Format:       "text",
 		BodyText:     "test",
 		SummaryTitle: "Notice",
 	})
@@ -597,7 +626,7 @@ func TestSMTPReportSender_CommaSeparatedRecipients(t *testing.T) {
 	}))
 
 	err := sender.SendReport(context.Background(), ReportPayload{
-		Format:       "markdown",
+		Format:       "text",
 		BodyText:     "test",
 		SummaryTitle: "Notice",
 	})
