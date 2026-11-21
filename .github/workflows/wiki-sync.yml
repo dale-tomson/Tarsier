@@ -1,0 +1,48 @@
+name: Sync GitHub Wiki
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'wiki/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: Push Wiki Content to GitHub Wiki
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Clone target GitHub Wiki repository
+        run: |
+          WIKI_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git"
+          git clone "$WIKI_URL" wiki-repo
+
+      - name: Sync wiki markdown and images
+        run: |
+          shopt -s dotglob
+          find wiki-repo -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          cp -R wiki/* wiki-repo/
+
+      - name: Commit and push updated wiki pages
+        working-directory: wiki-repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No wiki changes to push."
+            exit 0
+          fi
+          git commit -m "docs(wiki): sync documentation from main (${GITHUB_SHA::7})"
+          git push origin HEAD

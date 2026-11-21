@@ -13,7 +13,7 @@ LDFLAGS = -s -w \
 
 IMAGE_NAME ?= ghcr.io/dale-tomson/tarsier:$(VERSION)
 
-.PHONY: all build build-all test test-cover clean docker-build
+.PHONY: all build build-all test test-cover clean docker-build screenshots
 
 all: test build
 
@@ -35,6 +35,9 @@ test-cover:
 
 docker-build:
 	docker buildx build --platform linux/amd64,linux/arm64 -t $(IMAGE_NAME) .
+
+screenshots:
+	./scripts/screenshots/run.sh
 
 clean:
 	rm -rf bin/ coverage.out
