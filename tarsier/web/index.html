@@ -1325,7 +1325,7 @@ v-text="ctxEntry.level.toUpperCase()">
                         CRITICAL
                       </span>
                     </td>
-                    <td v-text="alertsView.formatTime(a.firing_since)">
+                    <td v-text="alertsView.formatTime(a.since || a.last_fired || a.firing_since)">
                     </td>
                     <td v-text="a.last_summary || '--'">
                     </td>
@@ -2024,17 +2024,17 @@ v-text="ctxEntry.level.toUpperCase()">
                     <div
                       v-else-if="alertsView.previewResult"
                       class="preview-box"
-                      :class="alertsView.previewResult.would_fire_now ? 'preview-firing' : (alertsView.isNoTelemetryPreview() ? 'preview-info' : 'preview-clear')"
+                      :class="alertsView.previewBoxClass()"
                     >
                       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
                         <strong>Dry-Run Result:</strong>
-                        <span v-if="alertsView.previewResult.would_fire_now" class="badge badge-critical">WOULD FIRE NOW</span>
+                        <span v-if="alertsView.previewResult?.would_fire_now" class="badge badge-critical">WOULD FIRE NOW</span>
                         <span v-else-if="alertsView.isNoTelemetryPreview()" class="badge badge-info">NO RECENT TELEMETRY</span>
                         <span v-else class="badge badge-success">CONDITION SATISFIED / OK</span>
                       </div>
 
-                      <ul v-if="alertsView.previewResult.matched_targets && alertsView.previewResult.matched_targets.length" style="margin-bottom:0.5rem;padding-left:1.25rem;">
-                        <li v-for="m in alertsView.previewResult.matched_targets" :key="m.target" style="font-size:0.85rem;">
+                      <ul v-if="alertsView.previewResult?.matched_targets?.length" style="margin-bottom:0.5rem;padding-left:1.25rem;">
+                        <li v-for="m in (alertsView.previewResult?.matched_targets || [])" :key="m.target" style="font-size:0.85rem;">
                           <code v-text="m.target"></code>:
                           <span v-text="m.summary || m.value"></span>
                         </li>
@@ -2044,22 +2044,22 @@ v-text="ctxEntry.level.toUpperCase()">
                         No active telemetry received in the last 120s for this target and metric.
                       </p>
 
-                      <p v-else-if="!alertsView.previewResult.would_fire_now && alertsView.ruleForm.kind === 'metric'" style="margin:0;font-size:0.85rem;color:var(--pico-muted-color);">
+                      <p v-else-if="alertsView.previewResult && !alertsView.previewResult.would_fire_now && alertsView.ruleForm.kind === 'metric'" style="margin:0;font-size:0.85rem;color:var(--pico-muted-color);">
                         Live telemetry for <code v-text="alertsView.ruleForm.target"></code> is currently within the configured threshold.
                       </p>
 
-                      <p v-else-if="!alertsView.previewResult.would_fire_now && alertsView.ruleForm.kind !== 'metric'" style="margin:0 0 0.4rem 0;font-size:0.85rem;color:var(--pico-muted-color);">
-                        Recent matches (last 24h / tail): <strong v-text="alertsView.previewResult.recent_matches_24h || 0"></strong> (below trigger threshold).
+                      <p v-else-if="alertsView.previewResult && !alertsView.previewResult.would_fire_now && alertsView.ruleForm.kind !== 'metric'" style="margin:0 0 0.4rem 0;font-size:0.85rem;color:var(--pico-muted-color);">
+                        Recent matches (last 24h / tail): <strong v-text="alertsView.previewResult?.recent_matches_24h || 0"></strong> (below trigger threshold).
                       </p>
 
-                      <div v-if="alertsView.previewResult.sample_lines && alertsView.previewResult.sample_lines.length" style="margin-top:0.5rem;">
+                      <div v-if="alertsView.previewResult?.sample_lines?.length" style="margin-top:0.5rem;">
                         <small>
                           <strong v-if="alertsView.ruleForm.kind === 'log'">
-                            Recent Matching Log Lines ({{ alertsView.previewResult.recent_matches_24h || 0 }} hits):
+                            Recent Matching Log Lines ({{ alertsView.previewResult?.recent_matches_24h || 0 }} hits):
                           </strong>
                           <strong v-else style="color:var(--pico-muted-color);">Diagnostics:</strong>
                         </small>
-                        <pre style="margin:0.25rem 0 0 0;font-size:0.75rem;padding:0.45rem;background:var(--pico-code-background-color);border-radius:4px;max-height:110px;overflow-y:auto;"><code v-for="(line, lIdx) in alertsView.previewResult.sample_lines" :key="lIdx" style="display:block;" v-text="line"></code></pre>
+                        <pre style="margin:0.25rem 0 0 0;font-size:0.75rem;padding:0.45rem;background:var(--pico-code-background-color);border-radius:4px;max-height:110px;overflow-y:auto;"><code v-for="(line, lIdx) in (alertsView.previewResult?.sample_lines || [])" :key="lIdx" style="display:block;" v-text="line"></code></pre>
                       </div>
                     </div>
                   </div>
