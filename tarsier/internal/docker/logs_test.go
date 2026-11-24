@@ -368,3 +368,42 @@ collectLoop2:
 		}
 	}
 }
+
+func TestDockerLogFollower_CleanEOFAppliesBackoff(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var connectionCount atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/containers/c-eof/logs", func(w http.ResponseWriter, r *http.Request) {
+		connectionCount.Add(1)
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusOK)
+		// Immediately return empty body (clean EOF).
+	})
+
+	socketPath := newMockDockerServer(t, mux)
+	client := NewClient(socketPath)
+
+	logChan := make(chan model.LogEntry, 16)
+	mgr := NewLogManager(LogManagerConfig{
+		Client:        client,
+		Sink:          model.LogChanSink(logChan),
+		FlushInterval: 100 * time.Millisecond,
+	})
+	defer mgr.Stop()
+
+	mgr.StartContainer(ctx, ContainerInfo{
+		ID:   "c-eof",
+		Name: "eof-container",
+	})
+
+	// Wait long enough that a busy loop would reconnect dozens/hundreds of times,
+	// but shorter than the 1s initial backoff.
+	time.Sleep(250 * time.Millisecond)
+	mgr.StopContainer("c-eof")
+
+	if got := connectionCount.Load(); got != 1 {
+		t.Fatalf("expected 1 connection during 250ms window with backoff on clean EOF, got %d", got)
+	}
+}

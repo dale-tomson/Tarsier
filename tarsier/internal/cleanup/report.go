@@ -254,6 +254,15 @@ func (b *ReportBuilder) Build(ctx context.Context, plan RetentionPlan) (PreClean
 	patternCounter := NewPatternCounter(4096)
 	sourceMap := make(map[int64]*SourceLogDigest)
 
+	rawPtr := b.rawPool.Get().(*[]byte)
+	rawBuf := *rawPtr
+	defer func() {
+		*rawPtr = rawBuf
+		b.rawPool.Put(rawPtr)
+	}()
+
+	var frameBuf []byte
+
 	for _, chunk := range plan.ExpiredChunks {
 		if ctx.Err() != nil {
 			return report, ctx.Err()
@@ -270,88 +279,7 @@ func (b *ReportBuilder) Build(ctx context.Context, plan RetentionPlan) (PreClean
 		digest.FilesCount++
 		digest.BytesReclaim += (chunk.ChunkBytes + chunk.IdxBytes)
 
-		// Read and parse .idx file
-		idxBytes, err := os.ReadFile(chunk.IdxPath)
-		if err != nil {
-			continue
-		}
-
-		numBlocks := len(idxBytes) / logs.IndexRecordSize
-		if numBlocks == 0 {
-			continue
-		}
-
-		var fChunk *os.File
-		defer func() {
-			if fChunk != nil {
-				_ = fChunk.Close()
-			}
-		}()
-
-		for i := 0; i < numBlocks; i++ {
-			recBytes := idxBytes[i*logs.IndexRecordSize : (i+1)*logs.IndexRecordSize]
-			meta, err := logs.UnmarshalIndexRecord(recBytes)
-			if err != nil {
-				continue
-			}
-
-			digest.TotalLines += int64(meta.RecordCount)
-
-			// Update window start with earliest encountered timestamp
-			blockStart := time.Unix(0, meta.MinTS).UTC()
-			if windowStart.IsZero() || blockStart.Before(windowStart) {
-				windowStart = blockStart
-			}
-
-			// Zero-Decompression Skip: skip decompressing if block contains only levels < LevelWarn
-			if meta.MaxLevel < model.LevelWarn {
-				continue
-			}
-
-			// Open chunk file lazily when an error/warning block is found
-			if fChunk == nil {
-				var oErr error
-				fChunk, oErr = os.Open(chunk.ChunkPath)
-				if oErr != nil {
-					break
-				}
-			}
-
-			// Read compressed frame
-			frameBytes := make([]byte, meta.CompressedLen)
-			if _, rErr := fChunk.ReadAt(frameBytes, meta.FileOffset); rErr != nil {
-				continue
-			}
-
-			rawBytes, dErr := b.dec.DecodeAll(frameBytes, nil)
-			if dErr != nil {
-				continue
-			}
-
-			entries, decErr := logs.DecodeBlock(rawBytes, strconv.FormatInt(chunk.SourceID, 10))
-			if decErr != nil {
-				continue
-			}
-
-			for _, ent := range entries {
-				if ent.Level >= model.LevelError {
-					digest.ErrorLines++
-					report.TotalErrors++
-					patternCounter.Add(chunk.SourceName, ent.Timestamp.UnixNano(), string(ent.Message))
-				} else if ent.Level == model.LevelWarn {
-					digest.WarnLines++
-					report.TotalWarnings++
-					if b.includeWarnings {
-						patternCounter.Add(chunk.SourceName, ent.Timestamp.UnixNano(), string(ent.Message))
-					}
-				}
-			}
-		}
-
-		if fChunk != nil {
-			_ = fChunk.Close()
-			fChunk = nil
-		}
+		b.processExpiredChunk(chunk, digest, &report, patternCounter, &windowStart, &rawBuf, &frameBuf)
 	}
 
 	// Compile sources summary
@@ -395,6 +323,104 @@ func (b *ReportBuilder) Build(ctx context.Context, plan RetentionPlan) (PreClean
 	report.WindowEnd = windowEnd
 
 	return report, nil
+}
+
+func (b *ReportBuilder) processExpiredChunk(
+	chunk ExpiredChunkFile,
+	digest *SourceLogDigest,
+	report *PreCleanupReport,
+	patternCounter *PatternCounter,
+	windowStart *time.Time,
+	rawBuf *[]byte,
+	frameBuf *[]byte,
+) {
+	// Read and parse .idx file
+	idxBytes, err := os.ReadFile(chunk.IdxPath)
+	if err != nil {
+		return
+	}
+
+	numBlocks := len(idxBytes) / logs.IndexRecordSize
+	if numBlocks == 0 {
+		return
+	}
+
+	var fChunk *os.File
+	defer func() {
+		if fChunk != nil {
+			_ = fChunk.Close()
+		}
+	}()
+
+	sourceIDStr := strconv.FormatInt(chunk.SourceID, 10)
+
+	for i := 0; i < numBlocks; i++ {
+		recBytes := idxBytes[i*logs.IndexRecordSize : (i+1)*logs.IndexRecordSize]
+		meta, err := logs.UnmarshalIndexRecord(recBytes)
+		if err != nil {
+			continue
+		}
+
+		digest.TotalLines += int64(meta.RecordCount)
+
+		// Update window start with earliest encountered timestamp
+		blockStart := time.Unix(0, meta.MinTS).UTC()
+		if windowStart.IsZero() || blockStart.Before(*windowStart) {
+			*windowStart = blockStart
+		}
+
+		// Zero-Decompression Skip: skip decompressing if block contains only levels < LevelWarn
+		if meta.MaxLevel < model.LevelWarn {
+			continue
+		}
+
+		// Open chunk file lazily when an error/warning block is found
+		if fChunk == nil {
+			var oErr error
+			fChunk, oErr = os.Open(chunk.ChunkPath)
+			if oErr != nil {
+				return
+			}
+		}
+
+		// Read compressed frame using reusable buffer
+		compLen := int(meta.CompressedLen)
+		if cap(*frameBuf) < compLen {
+			*frameBuf = make([]byte, compLen)
+		}
+		frameBytes := (*frameBuf)[:compLen]
+		if _, rErr := fChunk.ReadAt(frameBytes, meta.FileOffset); rErr != nil {
+			continue
+		}
+
+		// Decompress block using pooled raw buffer
+		rawBytes, dErr := b.dec.DecodeAll(frameBytes, (*rawBuf)[:0])
+		if dErr != nil {
+			continue
+		}
+		if cap(rawBytes) > cap(*rawBuf) && cap(rawBytes) <= 256*1024 {
+			*rawBuf = rawBytes
+		}
+
+		entries, decErr := logs.DecodeBlock(rawBytes, sourceIDStr)
+		if decErr != nil {
+			continue
+		}
+
+		for _, ent := range entries {
+			if ent.Level >= model.LevelError {
+				digest.ErrorLines++
+				report.TotalErrors++
+				patternCounter.Add(chunk.SourceName, ent.Timestamp.UnixNano(), string(ent.Message))
+			} else if ent.Level == model.LevelWarn {
+				digest.WarnLines++
+				report.TotalWarnings++
+				if b.includeWarnings {
+					patternCounter.Add(chunk.SourceName, ent.Timestamp.UnixNano(), string(ent.Message))
+				}
+			}
+		}
+	}
 }
 
 func (b *ReportBuilder) queryMetricSummaries(ctx context.Context, plan RetentionPlan) ([]MetricDigest, error) {
