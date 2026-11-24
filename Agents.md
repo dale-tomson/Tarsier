@@ -22,7 +22,7 @@ When writing or modifying code, adhere strictly to these finalized architectural
 * **SQLite Stores (`modernc.org/sqlite`, pure Go):**
   * **Two databases only:** `config.db` (alert rules, state, offsets, sessions, container events) and `metrics.db` (`series`, `sample_raw`, `sample_1m`, `sample_5m`, `sample_1d` using `WITHOUT ROWID`).
   * **No `logs.db`:** Do not store raw logs or FTS5 tables in SQLite.
-  * **Concurrency Model:** One dedicated single-writer goroutine (`SetMaxOpenConns(1)`) fed by a bounded channel per DB, paired with an isolated read pool (`SetMaxOpenConns(2)`). Enforce `WAL`, `synchronous=NORMAL`, `busy_timeout=5000`, `temp_store=MEMORY`, `auto_vacuum=INCREMENTAL`, and strict negative KiB `cache_size` pragmas.
+  * **Concurrency Model:** One dedicated single-writer goroutine (`SetMaxOpenConns(1)`) fed by a bounded channel per DB, paired with an isolated read pool (`SetMaxOpenConns(2)`). Enforce `WAL`, `synchronous=NORMAL`, `busy_timeout=5000`, `temp_store=MEMORY`, `auto_vacuum=INCREMENTAL`, and strict negative KiB `cache_size` pragmas (`-512` KiB for `config.db`, `-2000` KiB for `metrics.db`).
 * **Log Storage & Search (`/data/logs/<source_id>/`):**
   * Append-only `64 KB` blocks compressed via `klauspost/compress/zstd` (`.chunk` files) paired with binary-searched sparse index files (`.idx`).
   * All log searches are **scoped to a single source**. Prune blocks via `.idx` binary search, decompress into `sync.Pool` buffers, and scan with zero-alloc byte operations (`bytes.Contains` / Boyer-Moore).

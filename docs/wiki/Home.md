@@ -12,7 +12,7 @@ Tarsier is engineered for single servers, homelabs, and budget VPS nodes where o
 
 | Resource Dimension | Target / Ceiling | Mechanism |
 |---|---|---|
-| **Container Memory** | `< 256 MB` cgroup ceiling (`60–120 MB` RSS typical) | `GOMEMLIMIT=200MiB`, bounded channels, fixed-capacity ring buffers, `sync.Pool` buffer reuse |
+| **Container Memory** | `< 256 MB` cgroup ceiling (`60–120 MB` RSS typical) | `GOMEMLIMIT=200MiB`, `GODEBUG=madvdontneed=1`, bounded channels, fixed-capacity ring buffers, `sync.Pool` buffer reuse |
 | **CPU Overhead** | `< 5%` of one core idle/normal (`0.1–0.5 CPU`) | Zero-alloc `[]byte` log parsing (`< 10 µs`/line), 10s polling intervals, single-writer SQLite queues |
 | **Native Dependencies** | Zero CGO | Pure Go (`modernc.org/sqlite`, `klauspost/compress/zstd`), compiles with `CGO_ENABLED=0` |
 | **Frontend Runtime** | Zero Node.js | Embedded via Go `embed.FS` using vendored `petite-vue` (~6 KB IIFE), `Pico.css` v2, and `uPlot` (`< 100 KB` gzipped total) |
@@ -27,7 +27,7 @@ Tarsier is engineered for single servers, homelabs, and budget VPS nodes where o
    * **No `logs.db`:** Raw logs are never written into SQLite or FTS5 tables.
 2. **Single-Writer SQLite Concurrency:**
    * Each database runs one dedicated writer goroutine (`SetMaxOpenConns(1)`) fed by a bounded channel (`256` jobs for `config.db`, `2048` jobs for `metrics.db`), paired with an isolated read-only pool (`SetMaxOpenConns(2)`).
-   * Mandatory runtime PRAGMAs: `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`, `temp_store=MEMORY`, `foreign_keys=ON`, `mmap_size=0`, `auto_vacuum=INCREMENTAL`, and strict negative KiB `cache_size` (`-2000` KiB for `config.db`, `-4000` KiB for `metrics.db`).
+   * Mandatory runtime PRAGMAs: `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`, `temp_store=MEMORY`, `foreign_keys=ON`, `mmap_size=0`, `auto_vacuum=INCREMENTAL`, and strict negative KiB `cache_size` (`-512` KiB for `config.db`, `-2000` KiB for `metrics.db`).
 3. **Append-Only Compressed Log Chunks:**
    * Logs are buffered per source up to `64 KiB` uncompressed blocks (`TRLB` binary format), compressed via Zstandard (`klauspost/compress/zstd`), and appended to `/data/logs/<source_id>/<YYYY-MM-DD>.chunk` alongside fixed 36-byte `.idx` sparse index records.
    * Retention cleanup deletes expired log files with instant $O(1)$ filesystem unlinks.
