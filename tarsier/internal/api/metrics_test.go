@@ -189,6 +189,58 @@ func TestHostMetricsAPI_AutoTierSelection(t *testing.T) {
 	}
 }
 
+func TestHostMetricsAPI_DynamicHotCacheBoundary(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	clock := &mockClock{now: now}
+	srv, store, _ := setupMetricsTestServer(t, clock)
+	defer store.Close()
+
+	// Seed hotCache with 45 minutes of data (270 points at 10s interval) to verify spans > 30m still hit cache
+	srv.hotCache = metrics.NewHotCache(100, 360)
+	for i := 0; i < 270; i++ {
+		ts := now.Unix() - int64((270-i)*10)
+		srv.hotCache.Record(model.MetricSample{
+			Entity: "host",
+			Metric: "cpu_pct",
+			TS:     ts,
+			Value:  99.0,
+		})
+	}
+
+	// Also put different values in sample_raw so we can distinguish cache vs DB
+	reg := metrics.NewSeriesRegistry(store.Metrics, 100)
+	sID, err := reg.GetOrCreate(ctx, "host", "cpu_pct")
+	if err != nil {
+		t.Fatalf("create series failed: %v", err)
+	}
+	_ = store.Metrics.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		for i := 0; i < 360; i++ {
+			ts := now.Unix() - int64((360-i)*10)
+			_, _ = tx.ExecContext(txCtx, "INSERT OR REPLACE INTO sample_raw VALUES (?, ?, ?);", sID, ts, 11.0)
+		}
+		return nil
+	})
+
+	// 40-minute query (within 45m hotCache): should hit hotCache (value == 99.0) even though span > 30m
+	respCache, err := srv.queryHostMetrics(ctx, "host", "cpu_pct", now.Unix()-40*60, now.Unix(), "auto")
+	if err != nil {
+		t.Fatalf("queryHostMetrics (cache) failed: %v", err)
+	}
+	if len(respCache.Points) == 0 || respCache.Points[0].V != 99.0 {
+		t.Errorf("expected hotCache hit (V=99.0) for 40m span within OldestTS, got %+v", respCache.Points[:min(1, len(respCache.Points))])
+	}
+
+	// 55-minute query (older than 45m OldestTS): should fall back to sample_raw (value == 11.0)
+	respRaw, err := srv.queryHostMetrics(ctx, "host", "cpu_pct", now.Unix()-55*60, now.Unix(), "auto")
+	if err != nil {
+		t.Fatalf("queryHostMetrics (raw) failed: %v", err)
+	}
+	if len(respRaw.Points) == 0 || respRaw.Points[0].V != 11.0 {
+		t.Errorf("expected sample_raw fallback (V=11.0) for 55m span beyond OldestTS, got %+v", respRaw.Points[:min(1, len(respRaw.Points))])
+	}
+}
+
 func TestHostMetricsAPI_ValidationAndClamping(t *testing.T) {
 	srv, store, cookie := setupMetricsTestServer(t, nil)
 	defer store.Close()

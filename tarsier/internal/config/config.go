@@ -118,10 +118,12 @@ type CleanupReportConfig struct {
 }
 
 type CacheConfig struct {
-	MaxSources   int    `yaml:"max_sources" json:"max_sources"`
-	LogTailLines int    `yaml:"log_tail_lines" json:"log_tail_lines"`
-	OverviewTTL  string `yaml:"overview_ttl" json:"overview_ttl"`
-	QueryTTL     string `yaml:"query_ttl" json:"query_ttl"`
+	MaxSources       int    `yaml:"max_sources" json:"max_sources"`
+	LogTailLines     int    `yaml:"log_tail_lines" json:"log_tail_lines"`
+	MetricMaxSeries  int    `yaml:"metric_max_series" json:"metric_max_series"`
+	MetricRingPoints int    `yaml:"metric_ring_points" json:"metric_ring_points"`
+	OverviewTTL      string `yaml:"overview_ttl" json:"overview_ttl"`
+	QueryTTL         string `yaml:"query_ttl" json:"query_ttl"`
 }
 
 type HeartbeatConfig struct {
@@ -220,10 +222,12 @@ func NewDefaultConfig() *Config {
 			},
 		},
 		Cache: CacheConfig{
-			MaxSources:   500,
-			LogTailLines: 300,
-			OverviewTTL:  "3s",
-			QueryTTL:     "3s",
+			MaxSources:       50,
+			LogTailLines:     150,
+			MetricMaxSeries:  2000,
+			MetricRingPoints: 60,
+			OverviewTTL:      "3s",
+			QueryTTL:         "3s",
 		},
 		Heartbeat: HeartbeatConfig{
 			Enabled:  false,
@@ -381,6 +385,12 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.Cache.LogTailLines == 0 {
 		c.Cache.LogTailLines = def.Cache.LogTailLines
+	}
+	if c.Cache.MetricMaxSeries == 0 {
+		c.Cache.MetricMaxSeries = def.Cache.MetricMaxSeries
+	}
+	if c.Cache.MetricRingPoints == 0 {
+		c.Cache.MetricRingPoints = def.Cache.MetricRingPoints
 	}
 	if c.Cache.OverviewTTL == "" {
 		c.Cache.OverviewTTL = def.Cache.OverviewTTL

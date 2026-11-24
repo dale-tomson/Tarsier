@@ -259,6 +259,12 @@ func Validate(c *Config) error {
 	if c.Cache.LogTailLines < 50 || c.Cache.LogTailLines > 2000 {
 		errs = append(errs, fmt.Sprintf("cache.log_tail_lines must be between 50 and 2000, got %d", c.Cache.LogTailLines))
 	}
+	if c.Cache.MetricMaxSeries < 100 || c.Cache.MetricMaxSeries > 20000 {
+		errs = append(errs, fmt.Sprintf("cache.metric_max_series must be between 100 and 20000, got %d", c.Cache.MetricMaxSeries))
+	}
+	if c.Cache.MetricRingPoints < 30 || c.Cache.MetricRingPoints > 360 {
+		errs = append(errs, fmt.Sprintf("cache.metric_ring_points must be between 30 and 360, got %d", c.Cache.MetricRingPoints))
+	}
 	if err := validatePositiveDuration("cache.overview_ttl", c.Cache.OverviewTTL); err != nil {
 		errs = append(errs, err.Error())
 	}

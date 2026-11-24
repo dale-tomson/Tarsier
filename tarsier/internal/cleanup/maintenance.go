@@ -114,7 +114,7 @@ func InspectHandle(ctx context.Context, handle *db.Handle) (DBFileStats, error) 
 	return stats, nil
 }
 
-// MaintainHandle executes incremental_vacuum, optimize, and wal_checkpoint(TRUNCATE) on handle.
+// MaintainHandle executes incremental_vacuum, optimize, wal_checkpoint(TRUNCATE), and shrink_memory on handle.
 func (m *DatabaseMaintainer) MaintainHandle(ctx context.Context, handle *db.Handle) (DBMaintenanceResult, error) {
 	start := time.Now()
 	res := DBMaintenanceResult{}
@@ -179,8 +179,15 @@ func (m *DatabaseMaintainer) MaintainHandle(ctx context.Context, handle *db.Hand
 			}
 		}
 
+		// E. PRAGMA shrink_memory to release unused SQLite page cache memory
+		_, _ = conn.ExecContext(rawCtx, "PRAGMA shrink_memory;")
+
 		return nil
 	})
+
+	if handle.RO != nil {
+		_, _ = handle.RO.ExecContext(ctx, "PRAGMA shrink_memory;")
+	}
 
 	if err != nil {
 		res.Duration = time.Since(start)

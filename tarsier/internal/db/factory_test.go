@@ -94,10 +94,17 @@ func TestStore_PragmasEnforced(t *testing.T) {
 		handle        *sql.DB
 		expectedCache int64
 	}{
-		{"Config.RW", store.Config.RW, db.ConfigCacheSizeKiB},
-		{"Config.RO", store.Config.RO, db.ConfigCacheSizeKiB},
-		{"Metrics.RW", store.Metrics.RW, db.MetricsCacheSizeKiB},
-		{"Metrics.RO", store.Metrics.RO, db.MetricsCacheSizeKiB},
+		{"Config.RW", store.Config.RW, -512},
+		{"Config.RO", store.Config.RO, -512},
+		{"Metrics.RW", store.Metrics.RW, -2000},
+		{"Metrics.RO", store.Metrics.RO, -2000},
+	}
+
+	if db.ConfigCacheSizeKiB != -512 {
+		t.Errorf("expected ConfigCacheSizeKiB -512, got %d", db.ConfigCacheSizeKiB)
+	}
+	if db.MetricsCacheSizeKiB != -2000 {
+		t.Errorf("expected MetricsCacheSizeKiB -2000, got %d", db.MetricsCacheSizeKiB)
 	}
 
 	for _, tc := range testCases {

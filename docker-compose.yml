@@ -23,6 +23,7 @@ services:
       TARSIER_CONFIG: ${TARSIER_CONFIG:-/config/tarsier.yaml}
       TARSIER_ADMIN_USER: ${TARSIER_ADMIN_USER:-admin}
       GOMEMLIMIT: ${GOMEMLIMIT:-200MiB}
+      GODEBUG: ${GODEBUG:-madvdontneed=1}
       HOST_PROC: ${HOST_PROC:-/proc}
       HOST_SYS: ${HOST_SYS:-/sys}
       HOST_ROOT: ${HOST_ROOT:-/}

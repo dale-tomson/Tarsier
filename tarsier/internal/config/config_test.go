@@ -279,6 +279,34 @@ func TestValidateConfig(t *testing.T) {
 			expectErr: "cache.max_sources must be between 1 and 10000",
 		},
 		{
+			name: "out of bounds cache.metric_max_series low",
+			modify: func(c *Config) {
+				c.Cache.MetricMaxSeries = 50
+			},
+			expectErr: "cache.metric_max_series must be between 100 and 20000",
+		},
+		{
+			name: "out of bounds cache.metric_max_series high",
+			modify: func(c *Config) {
+				c.Cache.MetricMaxSeries = 30000
+			},
+			expectErr: "cache.metric_max_series must be between 100 and 20000",
+		},
+		{
+			name: "out of bounds cache.metric_ring_points low",
+			modify: func(c *Config) {
+				c.Cache.MetricRingPoints = 10
+			},
+			expectErr: "cache.metric_ring_points must be between 30 and 360",
+		},
+		{
+			name: "out of bounds cache.metric_ring_points high",
+			modify: func(c *Config) {
+				c.Cache.MetricRingPoints = 500
+			},
+			expectErr: "cache.metric_ring_points must be between 30 and 360",
+		},
+		{
 			name: "invalid cleanup.schedule not a cron",
 			modify: func(c *Config) {
 				c.Cleanup.Schedule = "not-a-cron"
@@ -581,8 +609,17 @@ func TestApplyDefaultsAllBranches(t *testing.T) {
 	if c.Cleanup.Report.Format != "text" {
 		t.Errorf("expected cleanup report format 'text', got %s", c.Cleanup.Report.Format)
 	}
-	if c.Cache.MaxSources != 500 {
-		t.Errorf("expected 500, got %d", c.Cache.MaxSources)
+	if c.Cache.MaxSources != 50 {
+		t.Errorf("expected 50, got %d", c.Cache.MaxSources)
+	}
+	if c.Cache.LogTailLines != 150 {
+		t.Errorf("expected 150, got %d", c.Cache.LogTailLines)
+	}
+	if c.Cache.MetricMaxSeries != 2000 {
+		t.Errorf("expected 2000, got %d", c.Cache.MetricMaxSeries)
+	}
+	if c.Cache.MetricRingPoints != 60 {
+		t.Errorf("expected 60, got %d", c.Cache.MetricRingPoints)
 	}
 	if c.Heartbeat.Interval != "5m" {
 		t.Errorf("expected 5m, got %s", c.Heartbeat.Interval)

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type contextKey string
@@ -47,11 +49,35 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
+const maxPooledJSONBufferCap = 64 * 1024
+
+var jsonBufPool = sync.Pool{
+	New: func() any {
+		return bytes.NewBuffer(make([]byte, 0, 1024))
+	},
+}
+
 // WriteJSON writes a JSON response with status code.
 func WriteJSON(w http.ResponseWriter, status int, data any) {
+	buf := jsonBufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer func() {
+		if buf.Cap() <= maxPooledJSONBufferCap {
+			buf.Reset()
+			jsonBufPool.Put(buf)
+		}
+	}()
+
+	if err := json.NewEncoder(buf).Encode(data); err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"code":"internal_error","message":"failed to encode response"}}` + "\n"))
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(data)
+	_, _ = w.Write(buf.Bytes())
 }
 
 // WriteJSONError writes a standard {"error": {"code": "...", "message": "..."}} JSON response.

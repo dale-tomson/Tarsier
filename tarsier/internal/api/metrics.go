@@ -179,7 +179,11 @@ func (s *Server) queryHostMetrics(ctx context.Context, entity, metric string, fr
 
 	// Auto tier selection
 	if stepParam == "auto" {
-		if span <= 30*60 && s.hotCache != nil && s.hotCache.OldestTS(entity, metric) > 0 && from >= s.hotCache.OldestTS(entity, metric) {
+		var oldestCacheTS int64
+		if s.hotCache != nil {
+			oldestCacheTS = s.hotCache.OldestTS(entity, metric)
+		}
+		if oldestCacheTS > 0 && from >= oldestCacheTS {
 			selectedStep = "cache"
 		} else if span <= 6*3600 {
 			selectedStep = "raw"

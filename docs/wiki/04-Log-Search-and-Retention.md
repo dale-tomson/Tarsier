@@ -32,7 +32,7 @@ Logs are stored under `<storage.path>/logs/<source_id>/` using daily files:
 
 All log queries in Tarsier are **scoped to a single source** (`source=<id>`). Keeping queries single-source avoids cross-container fan-out merges, bounds memory strictly during decompression, and guarantees predictable latency:
 
-1. **Hot Tail Ring Buffer (`TailCache`):** Recent lines (up to `cache.log_tail_lines`, default `300` per source) are served directly from memory for instant live tailing.
+1. **Hot Tail Ring Buffer (`TailCache`):** Recent lines (up to `cache.log_tail_lines`, default `150` per source) are served directly from memory for instant live tailing.
 2. **Sparse `.idx` Pruning:** For historical queries, `LogQueryEngine` binary-searches the 36-byte `.idx` records to skip blocks outside `[from, to]`, below `minLevel`, or outside the requested `stream` (`stdout`/`stderr`) mask.
 3. **Zero-Alloc Byte Scanning:** Matching blocks are decompressed into pooled `sync.Pool` buffers and scanned with byte-level substring matching (Boyer-Moore / `bytes.Contains`) or compiled regex (`<= 512` bytes), using opaque keyset cursor pagination (`NextCursor`).
 
@@ -63,7 +63,7 @@ Triggered on `cleanup.schedule` (default `"0 3 * * *"` daily at 03:00 UTC) or ma
 1. **Instant $O(1)$ Log Unlinks:** Expired `<YYYY-MM-DD>.chunk` and `.idx` files older than `retention.logs` are unlinked directly from disk without rewriting databases.
 2. **Emergency Disk-Cap Eviction:** If `/data/logs/` exceeds `storage.logs_max_size`, the oldest chunk/index pairs are purged down to `90%` of the configured limit (10% hysteresis).
 3. **Chunked `metrics.db` Pruning:** Expired rows in `sample_raw`, `sample_1m`, `sample_5m`, and `sample_1d` (plus `container_event` and `alert_event` in `config.db`) are deleted in bounded batches (`cleanup.batch_size`, default `5000` rows) separated by `cleanup.batch_pause` (`50ms`) so the single-writer queue never blocks live metric ingestion.
-4. **Automated SQLite Maintenance (`maintenance.go`):** After pruning, `DatabaseMaintainer` runs bounded `PRAGMA incremental_vacuum(pages)` passes (default `2000` pages per pass, up to `16` passes with `25ms` pauses), `PRAGMA optimize`, and `PRAGMA wal_checkpoint(TRUNCATE)`.
+4. **Automated SQLite Maintenance (`maintenance.go`):** After pruning, `DatabaseMaintainer` runs bounded `PRAGMA incremental_vacuum(pages)` passes (default `2000` pages per pass, up to `16` passes with `25ms` pauses), `PRAGMA optimize`, `PRAGMA wal_checkpoint(TRUNCATE)`, and `PRAGMA shrink_memory;` on both `RW` and `RO` handles to release unused page-cache allocations back to Go.
 
 ### Pre-Cleanup Digest Reports & Dry-Run Mode
 

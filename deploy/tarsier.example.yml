@@ -326,16 +326,27 @@ cleanup:
 # 10. In-Memory Ring Buffer & API Query Caching
 # ------------------------------------------------------------------------------
 cache:
-  # Maximum number of distinct metric and log sources tracked in the in-memory ring buffer.
+  # Maximum number of distinct log sources tracked in the in-memory tail ring buffer.
   # Enforces hard upper bound on memory consumption (60-120 MB RSS target).
-  # Valid range: 10 - 5000.
-  # Default: 500
-  max_sources: 500
+  # Valid range: 1 - 10000.
+  # Default: 50
+  max_sources: 50
 
   # Number of recent log lines retained in hot memory per source for instant tailing.
-  # Valid range: 50 - 1000.
-  # Default: 300
-  log_tail_lines: 300
+  # Valid range: 50 - 2000.
+  # Default: 150
+  log_tail_lines: 150
+
+  # Maximum number of distinct metric series retained in the in-memory hot cache.
+  # Valid range: 100 - 20000.
+  # Default: 2000
+  metric_max_series: 2000
+
+  # Number of recent metric samples retained per series in the in-memory ring buffer
+  # (e.g., 60 points = 10 minutes at 10-second polling intervals).
+  # Valid range: 30 - 360.
+  # Default: 60
+  metric_ring_points: 60
 
   # Cache TTL for high-level system vitals returned by the overview API endpoint.
   # Default: "3s"
