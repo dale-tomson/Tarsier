@@ -13,11 +13,11 @@ const (
 	// BusyTimeoutMS is the SQLite busy timeout in milliseconds.
 	BusyTimeoutMS = 5000
 
-	// ConfigCacheSizeKiB is the memory cap for config.db page cache (~2 MiB).
-	ConfigCacheSizeKiB = -2000
+	// ConfigCacheSizeKiB is the memory cap for config.db page cache (~512 KiB).
+	ConfigCacheSizeKiB = -512
 
-	// MetricsCacheSizeKiB is the memory cap for metrics.db page cache (~4 MiB).
-	MetricsCacheSizeKiB = -4000
+	// MetricsCacheSizeKiB is the memory cap for metrics.db page cache (~2 MiB).
+	MetricsCacheSizeKiB = -2000
 )
 
 // PragmaSettings holds the runtime PRAGMA values queried from an active database connection.

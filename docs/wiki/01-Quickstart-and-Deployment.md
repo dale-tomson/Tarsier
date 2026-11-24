@@ -150,6 +150,7 @@ User=root
 Group=root
 EnvironmentFile=/etc/tarsier/tarsier.env
 Environment="GOMEMLIMIT=200MiB"
+Environment="GODEBUG=madvdontneed=1"
 ExecStart=/usr/local/bin/tarsier -config /etc/tarsier/tarsier.yaml
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure

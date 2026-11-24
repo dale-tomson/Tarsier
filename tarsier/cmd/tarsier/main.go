@@ -74,7 +74,7 @@ func main() {
 		log.Fatalf("Fatal: %v", err)
 	}
 
-	ingestor, rollup, closeIngestor, err := bootstrapMetrics(ctx, store)
+	ingestor, rollup, closeIngestor, err := bootstrapMetrics(ctx, cfg, store)
 	if err != nil {
 		log.Fatalf("Fatal: %v", err)
 	}

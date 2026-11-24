@@ -554,3 +554,74 @@ func TestLoginHandler_MaxBytesReader(t *testing.T) {
 		t.Errorf("expected 400 for payload > 4KB, got %d", rec.Code)
 	}
 }
+
+func TestWriteJSON_PoolingAndErrors(t *testing.T) {
+	t.Run("standard json payload", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		auth.WriteJSON(rec, http.StatusCreated, map[string]string{"hello": "world"})
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d", rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+			t.Errorf("expected application/json; charset=utf-8, got %q", ct)
+		}
+		var out map[string]string
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("unmarshal failed: %v", err)
+		}
+		if out["hello"] != "world" {
+			t.Errorf("expected hello=world, got %+v", out)
+		}
+	})
+
+	t.Run("oversized payload bypasses pool cleanly", func(t *testing.T) {
+		large := strings.Repeat("x", 80*1024)
+		rec := httptest.NewRecorder()
+		auth.WriteJSON(rec, http.StatusOK, map[string]string{"data": large})
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+		var out map[string]string
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("unmarshal large payload failed: %v", err)
+		}
+		if len(out["data"]) != len(large) {
+			t.Errorf("expected length %d, got %d", len(large), len(out["data"]))
+		}
+	})
+
+	t.Run("encode error returns 500", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		auth.WriteJSON(rec, http.StatusOK, make(chan int))
+
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500 on unencodable value, got %d", rec.Code)
+		}
+	})
+
+	t.Run("concurrent pooled writes do not corrupt", func(t *testing.T) {
+		var wg sync.WaitGroup
+		for i := 0; i < 32; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				for j := 0; j < 20; j++ {
+					rec := httptest.NewRecorder()
+					auth.WriteJSON(rec, http.StatusOK, map[string]int{"id": id, "iter": j})
+					var out map[string]int
+					if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+						t.Errorf("unmarshal failed: %v", err)
+						return
+					}
+					if out["id"] != id || out["iter"] != j {
+						t.Errorf("mismatched response: expected id=%d iter=%d, got %+v", id, j, out)
+						return
+					}
+				}
+			}(i)
+		}
+		wg.Wait()
+	})
+}

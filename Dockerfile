@@ -42,6 +42,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM gcr.io/distroless/static-debian12:nonroot
 
 ENV GOMEMLIMIT=200MiB
+ENV GODEBUG=madvdontneed=1
 
 # Copy timezone data & SSL certs from builder
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo

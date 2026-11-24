@@ -84,13 +84,13 @@ func bootstrapAuth(cfg *config.Config, store *db.Store) (*auth.Authenticator, *a
 }
 
 // bootstrapMetrics initializes the metric ingestor queue, in-memory ring buffer, and rollup engine.
-func bootstrapMetrics(ctx context.Context, store *db.Store) (*metrics.Ingestor, *metrics.RollupEngine, func(), error) {
+func bootstrapMetrics(ctx context.Context, cfg *config.Config, store *db.Store) (*metrics.Ingestor, *metrics.RollupEngine, func(), error) {
 	ingestor, err := metrics.NewIngestor(store.Metrics, metrics.IngestOptions{
 		MaxBatchSize:  500,
 		FlushInterval: 500 * time.Millisecond,
 		QueueCapacity: 4096,
-		MaxSeries:     10000,
-		RingCapacity:  180,
+		MaxSeries:     cfg.Cache.MetricMaxSeries,
+		RingCapacity:  cfg.Cache.MetricRingPoints,
 	})
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to initialize metrics ingestor: %w", err)

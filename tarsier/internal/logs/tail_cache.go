@@ -11,10 +11,10 @@ import (
 
 const (
 	// DefaultMaxSources is the default maximum number of active source rings retained in memory.
-	DefaultMaxSources = 500
+	DefaultMaxSources = 50
 
 	// DefaultLogTailLines is the default circular buffer capacity per source.
-	DefaultLogTailLines = 300
+	DefaultLogTailLines = 150
 
 	// MinLogTailLines is the minimum allowed ring buffer capacity per source.
 	MinLogTailLines = 50
