@@ -56,6 +56,24 @@ jobs:
         working-directory: tarsier
         run: go test -race -v -coverprofile=../coverage.out ./...
 
+  memory-leak-test:
+    name: Memory Leak & Resource Bounds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'tarsier/go.mod'
+          cache-dependency-path: 'tarsier/go.sum'
+          cache: true
+
+      - name: Run memory leak and bounded growth tests
+        working-directory: tarsier
+        run: go test -race -v -count=1 -run 'Test.*(Leak|AllocBound|Eviction|Polling|CleanEOF)' ./...
+
   docker-smoke:
     name: Docker Build Smoke Test
     runs-on: ubuntu-latest
