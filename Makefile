@@ -13,7 +13,7 @@ LDFLAGS = -s -w \
 
 IMAGE_NAME ?= ghcr.io/dale-tomson/tarsier:$(VERSION)
 
-.PHONY: all build build-all test test-cover clean docker-build screenshots
+.PHONY: all build build-all test test-cover test-leaks clean docker-build screenshots
 
 all: test build
 
@@ -32,6 +32,9 @@ test:
 test-cover:
 	cd tarsier && go test -race -coverprofile=../coverage.out ./...
 	go tool cover -func=coverage.out
+
+test-leaks:
+	cd tarsier && go test -race -v -count=1 -run 'Test.*(Leak|AllocBound|Eviction|Polling|CleanEOF)' ./...
 
 docker-build:
 	docker buildx build --platform linux/amd64,linux/arm64 -t $(IMAGE_NAME) .

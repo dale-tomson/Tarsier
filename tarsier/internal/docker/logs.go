@@ -251,10 +251,12 @@ func (m *DockerLogManager) runFollower(f *containerFollower) {
 				m.StopContainer(f.info.ID)
 				return
 			}
+			timer := time.NewTimer(backoff)
 			select {
 			case <-f.ctx.Done():
+				timer.Stop()
 				return
-			case <-time.After(backoff):
+			case <-timer.C:
 				backoff *= 2
 				if backoff > maxBackoff {
 					backoff = maxBackoff
@@ -263,28 +265,36 @@ func (m *DockerLogManager) runFollower(f *containerFollower) {
 			}
 		}
 
-		// Reset backoff on successful connection
-		backoff = 1 * time.Second
-
 		// Stream demultiplexing loop
+		receivedLine := false
 		demuxErr := DemuxStream(body, f.info.TTY, m.maxLineBytes, func(stream model.Stream, rawLine []byte) error {
 			if f.ctx.Err() != nil {
 				return f.ctx.Err()
 			}
+			receivedLine = true
 			m.processLine(f, stream, rawLine)
 			return nil
 		})
 		body.Close()
 
-		if demuxErr != nil && !errors.Is(demuxErr, context.Canceled) && f.ctx.Err() == nil {
-			select {
-			case <-f.ctx.Done():
-				return
-			case <-time.After(backoff):
-				backoff *= 2
-				if backoff > maxBackoff {
-					backoff = maxBackoff
-				}
+		if errors.Is(demuxErr, context.Canceled) || f.ctx.Err() != nil {
+			return
+		}
+
+		if receivedLine {
+			backoff = 1 * time.Second
+		}
+
+		// Apply backoff on both stream errors and clean EOF to prevent busy-loop reconnection.
+		timer := time.NewTimer(backoff)
+		select {
+		case <-f.ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
 			}
 		}
 	}

@@ -2,6 +2,7 @@ package alert
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -437,4 +438,91 @@ func TestStateMachine_StartupRestoreAndRuleEditReset(t *testing.T) {
 		t.Errorf("expected active alerts to be purged on rule swap, got %+v", freshSM.ActiveAlerts())
 	}
 	_ = updatedRule
+}
+
+func TestStateMachine_EphemeralTargetNoMapLeak(t *testing.T) {
+	ctx := context.Background()
+	t0 := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	clock := newFakeClock(t0)
+	disp := &mockDispatcher{}
+	sm := NewStateMachine(nil, nil, nil, disp, clock)
+
+	rule := &CompiledRule{
+		AlertRule: AlertRule{
+			ID:             42,
+			Name:           "Container Restart Alert",
+			Kind:           "container",
+			Enabled:        true,
+			Severity:       "warning",
+			Target:         "container:*",
+			ForSec:         0,
+			CooldownSec:    300,
+			Channels:       []string{"discord"},
+			NotifyRecovery: true,
+		},
+	}
+
+	// Simulate 5,000 healthy container events with unique ephemeral IDs.
+	for i := 0; i < 5000; i++ {
+		sm.Observe(ctx, EvalObservation{
+			Rule:     rule,
+			Target:   fmt.Sprintf("container:ephemeral-%04d", i),
+			Breached: false,
+			Value:    0,
+			Summary:  "container healthy",
+			At:       clock.Now(),
+		})
+	}
+
+	sm.mu.RLock()
+	statesCount := len(sm.states)
+	sm.mu.RUnlock()
+	if statesCount != 0 {
+		t.Fatalf("expected 0 entries in sm.states after 5,000 healthy events, got %d", statesCount)
+	}
+
+	// Keep one target actively firing.
+	sm.Observe(ctx, EvalObservation{
+		Rule:     rule,
+		Target:   "container:active-firing",
+		Breached: true,
+		Value:    1,
+		Summary:  "container down",
+		At:       clock.Now(),
+	})
+
+	// Simulate 100 ephemeral targets that breach and then recover.
+	for i := 0; i < 100; i++ {
+		target := fmt.Sprintf("container:flapping-%03d", i)
+		sm.Observe(ctx, EvalObservation{
+			Rule:     rule,
+			Target:   target,
+			Breached: true,
+			Value:    1,
+			Summary:  "container flapping",
+			At:       clock.Now(),
+		})
+		sm.Observe(ctx, EvalObservation{
+			Rule:     rule,
+			Target:   target,
+			Breached: false,
+			Value:    0,
+			Summary:  "container recovered",
+			At:       clock.Now(),
+		})
+	}
+
+	sm.mu.RLock()
+	statesCount = len(sm.states)
+	for k, st := range sm.states {
+		if st.State == StateOK {
+			sm.mu.RUnlock()
+			t.Fatalf("found orphaned StateOK entry in sm.states for key %+v", k)
+		}
+	}
+	sm.mu.RUnlock()
+
+	if statesCount != 1 {
+		t.Fatalf("expected len(sm.states) == 1 (only active firing target), got %d", statesCount)
+	}
 }

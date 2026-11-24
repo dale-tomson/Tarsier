@@ -85,6 +85,7 @@ func (c *QueryCache) GetOrCompute(key string, computeFn func() ([]byte, error)) 
 		}
 		// Expired
 		delete(c.entries, key)
+		c.removeOrderKey(key)
 	}
 	c.mu.Unlock()
 
@@ -99,6 +100,7 @@ func (c *QueryCache) GetOrCompute(key string, computeFn func() ([]byte, error)) 
 				return data, nil
 			}
 			delete(c.entries, key)
+			c.removeOrderKey(key)
 		}
 		c.mu.Unlock()
 
@@ -108,12 +110,19 @@ func (c *QueryCache) GetOrCompute(key string, computeFn func() ([]byte, error)) 
 		}
 
 		c.mu.Lock()
+		if _, exists := c.entries[key]; exists {
+			delete(c.entries, key)
+			c.removeOrderKey(key)
+		}
+
 		// Evict oldest if capacity reached
 		for len(c.entries) >= c.maxSize && len(c.order) > 0 {
 			oldestKey := c.order[0]
+			c.order[0] = ""
 			c.order = c.order[1:]
 			delete(c.entries, oldestKey)
 		}
+		c.maybeCompactOrder()
 
 		c.entries[key] = cacheEntry{
 			data:      data,
@@ -126,13 +135,37 @@ func (c *QueryCache) GetOrCompute(key string, computeFn func() ([]byte, error)) 
 	})
 }
 
+// removeOrderKey deletes a single key from c.order while preserving slice element zeroing.
+// Caller must hold c.mu.
+func (c *QueryCache) removeOrderKey(key string) {
+	for i, k := range c.order {
+		if k == key {
+			copy(c.order[i:], c.order[i+1:])
+			c.order[len(c.order)-1] = ""
+			c.order = c.order[:len(c.order)-1]
+			break
+		}
+	}
+	c.maybeCompactOrder()
+}
+
+// maybeCompactOrder shrinks an oversized backing array when active length drops well below capacity.
+// Caller must hold c.mu.
+func (c *QueryCache) maybeCompactOrder() {
+	if cap(c.order) > c.maxSize && len(c.order) <= c.maxSize/2 {
+		compacted := make([]string, len(c.order), c.maxSize)
+		copy(compacted, c.order)
+		c.order = compacted
+	}
+}
+
 // Invalidate clears all entries from the query cache.
 func (c *QueryCache) Invalidate() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.entries = make(map[string]cacheEntry, c.maxSize)
-	c.order = c.order[:0]
+	c.order = make([]string, 0, c.maxSize)
 }
 
 // Len returns the current number of entries in the cache.

@@ -107,6 +107,10 @@ func (sm *StateMachine) Observe(ctx context.Context, obs EvalObservation) {
 
 	st, exists := sm.states[key]
 	if !exists {
+		if !obs.Breached {
+			// Target is healthy and has no pending/firing state; do not store StateOK.
+			return
+		}
 		st = &RuleTargetState{
 			RuleID:   obs.Rule.ID,
 			RuleName: obs.Rule.Name,
@@ -223,16 +227,16 @@ func (sm *StateMachine) handleRecovery(ctx context.Context, obs EvalObservation,
 			_ = sm.ruleStore.UpdateAlertEventResolved(ctx, st.ActiveEventID, nowSec)
 		}
 
-		sm.deleteState(ctx, key)
-
 		// Dispatch resolution notification if enabled
 		if obs.Rule.NotifyRecovery {
 			sm.dispatchNotification(obs, st, "resolved")
 		}
 		st.ActiveEventID = 0
+		sm.deleteState(ctx, key)
 
 	case StateOK:
-		// Already healthy; do nothing
+		// Prune any orphaned healthy state from memory and DB
+		sm.deleteState(ctx, key)
 	}
 }
 
@@ -339,6 +343,9 @@ func (sm *StateMachine) Restore(ctx context.Context) error {
 		}
 
 		st.State = AlertState(stateStr)
+		if st.State == StateOK {
+			continue
+		}
 		if len(detailsJSON) > 0 {
 			_ = json.Unmarshal([]byte(detailsJSON), &st.LastDetails)
 		}
