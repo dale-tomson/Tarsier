@@ -77,6 +77,7 @@ Tarsier decodes YAML using `gopkg.in/yaml.v3` with `dec.KnownFields(true)`:
 | `retention.metrics_1m` | `duration` | `"7d"` | Retention for 1-minute rollups (`sample_1m`). |
 | `retention.metrics_5m` | `duration` | `"30d"` | Retention for 5-minute rollups (`sample_5m`). |
 | `retention.metrics_1d` | `duration` | `"90d"` | Retention for daily rollups (`sample_1d`). |
+| `retention.containers_exited` | `duration` | `"24h"` | Retention horizon for exited, dead, or destroyed container metadata and lifecycle events in `config.db` when not restarted. |
 
 ### `host`
 
@@ -185,7 +186,7 @@ Tarsier's configuration loader (`internal/config/loader.go` and `internal/config
 | `server` | `listen: ":8080"`, `base_url: ""`, `timezone: "UTC"` | Empty `base_url` disables canonical link prefixes and relies on TLS/proxy headers for `Secure` cookies. |
 | `auth` | `session_ttl: "24h"`, `max_login_attempts: 5`, `lockout: "15m"` | Credentials and session signing keys come exclusively from environment variables, never YAML. |
 | `storage` | `path: "/data"`, `logs_max_size: "3GiB"`, `metrics_max_size: "256MiB"` | Physical caps enforce 90% hysteresis eviction on `/data/logs/` if disk usage exceeds `logs_max_size`. |
-| `retention` | `logs: "7d"`, `metrics_raw: "24h"`, `metrics_1m: "7d"`, `metrics_5m: "30d"`, `metrics_1d: "90d"` | Keeps high-resolution raw samples short-lived while preserving rolled-up history. |
+| `retention` | `logs: "7d"`, `metrics_raw: "24h"`, `metrics_1m: "7d"`, `metrics_5m: "30d"`, `metrics_1d: "90d"`, `containers_exited: "24h"` | Keeps high-resolution raw samples and dead ephemeral container metadata short-lived while preserving rolled-up history. |
 | `host` | `enabled: true`, `interval: "10s"`, `disks: []`, `disk_exclude_fs: ["tmpfs", "overlay", "squashfs", "devtmpfs"]` | Empty `disks` auto-discovers physical mounts via `/proc/mounts` or `/proc/self/mountinfo`. |
 | `docker` | `enabled: true`, `socket: "/var/run/docker.sock"`, `stats_interval: "10s"`, `collect_logs: true`, `collect_metrics: true`, `include: []`, `exclude: []` | Degrades gracefully to host-only monitoring if the Docker socket is unreachable. `tarsier.example.yaml` sets `exclude: ["tarsier"]`. |
 | `logs` | `default_timezone: ""` (treated as `UTC`), `detect.max_scan_bytes: 4096`, `detect.keyword_levels: true`, `detect.hints: true`, `files: []` | Empty `files` disables host file tailing; Docker container log streaming still operates when Docker is enabled. |

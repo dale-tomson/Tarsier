@@ -18,14 +18,15 @@ import (
 
 // RetentionPlan describes the parameters and targets for a pre-cleanup or cleanup run.
 type RetentionPlan struct {
-	GeneratedAt    time.Time
-	DryRun         bool
-	LogsCutoffTS   int64 // UTC nanoseconds; chunks strictly older than this date/cutoff are slated for purge
-	RawCutoffTS    int64 // Unix seconds for metrics.db sample_raw
-	Rollup1mCutoff int64 // Unix seconds for metrics.db sample_1m
-	Rollup5mCutoff int64 // Unix seconds for metrics.db sample_5m
-	EventsCutoffTS int64 // Unix seconds for config.db container_event / alert_event
-	ExpiredChunks  []ExpiredChunkFile
+	GeneratedAt        time.Time
+	DryRun             bool
+	LogsCutoffTS       int64 // UTC nanoseconds; chunks strictly older than this date/cutoff are slated for purge
+	RawCutoffTS        int64 // Unix seconds for metrics.db sample_raw
+	Rollup1mCutoff     int64 // Unix seconds for metrics.db sample_1m
+	Rollup5mCutoff     int64 // Unix seconds for metrics.db sample_5m
+	EventsCutoffTS     int64 // Unix seconds for config.db container_event / alert_event
+	ContainersCutoffTS int64 // Unix seconds for config.db exited container pruning
+	ExpiredChunks      []ExpiredChunkFile
 }
 
 // ExpiredChunkFile references a single candidate .chunk and companion .idx on disk.

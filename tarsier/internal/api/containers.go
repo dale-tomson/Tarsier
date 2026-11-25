@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/dale-tomson/Tarsier/internal/auth"
+	"github.com/dale-tomson/Tarsier/internal/config"
 	"github.com/dale-tomson/Tarsier/internal/metrics"
 )
 
@@ -104,6 +105,16 @@ func computeContainerHealth(state string, restartCount int) string {
 	}
 }
 
+func (s *Server) containersExitedHorizonSec() int64 {
+	const defaultSec int64 = 24 * 3600
+	if s.cfg != nil && s.cfg.Retention.ContainersExited != "" {
+		if d, err := config.ParseDuration(s.cfg.Retention.ContainersExited); err == nil && d > 0 {
+			return int64(d.Seconds())
+		}
+	}
+	return defaultSec
+}
+
 func (s *Server) isDockerConnected() bool {
 	if s.dockerConnectedFunc != nil {
 		return s.dockerConnectedFunc()
@@ -141,6 +152,9 @@ func (s *Server) queryContainersList(ctx context.Context) (*ContainersListRespon
 		return resp, nil
 	}
 
+	nowUnix := s.clock.Now().Unix()
+	cutoffTS := nowUnix - s.containersExitedHorizonSec()
+
 	// 1. Fetch discovered containers from config.db, deduplicated by name (prioritizing running state and latest last_seen)
 	rows, err := s.configDB.RO.QueryContext(ctx, `
 		WITH ranked AS (
@@ -150,12 +164,13 @@ func (s *Server) queryContainersList(ctx context.Context) (*ContainersListRespon
 			           ORDER BY CASE WHEN last_status = 'running' THEN 1 ELSE 2 END, last_seen DESC
 			       ) as rn
 			FROM container
+			WHERE NOT (last_status IN ('exited', 'dead', 'destroyed') AND last_seen < ?)
 		)
 		SELECT id, name, image, first_seen, last_seen, last_status, restart_count
 		FROM ranked
 		WHERE rn = 1
 		ORDER BY name ASC;
-	`)
+	`, cutoffTS)
 	if err != nil {
 		return nil, fmt.Errorf("query containers: %w", err)
 	}
@@ -196,8 +211,6 @@ func (s *Server) queryContainersList(ctx context.Context) (*ContainersListRespon
 			}
 		}
 	}
-
-	nowUnix := s.clock.Now().Unix()
 
 	for _, c := range rawContainers {
 		entity := "container:" + c.name
@@ -329,6 +342,11 @@ func (s *Server) queryContainerDetail(ctx context.Context, name string, days int
 	}
 
 	nowUnix := s.clock.Now().Unix()
+	cutoffTS := nowUnix - s.containersExitedHorizonSec()
+	if (lastStatus == "exited" || lastStatus == "dead" || lastStatus == "destroyed") && lastSeen < cutoffTS {
+		return nil, fmt.Errorf("container not found")
+	}
+
 	item := ContainerListItem{
 		ID:           id,
 		Name:         cName,

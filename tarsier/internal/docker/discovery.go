@@ -104,6 +104,24 @@ func SyncContainers(ctx context.Context, configDB *db.Handle, containers []Conta
 			}
 		}
 
+		// 3. Prune exited, dead, or destroyed containers older than 24 hours along with their lifecycle events
+		cutoffTS := now - 24*3600
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM container_event
+			WHERE container_id IN (
+				SELECT id FROM container
+				WHERE last_status IN ('exited', 'dead', 'destroyed') AND last_seen < ?
+			);
+		`, cutoffTS); err != nil {
+			return fmt.Errorf("prune expired container events: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM container
+			WHERE last_status IN ('exited', 'dead', 'destroyed') AND last_seen < ?;
+		`, cutoffTS); err != nil {
+			return fmt.Errorf("prune expired containers: %w", err)
+		}
+
 		return nil
 	})
 }

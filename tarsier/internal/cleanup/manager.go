@@ -327,8 +327,17 @@ func (m *CleanupManager) Run(ctx context.Context, trigger string, dryRun bool) (
 		return result, fmt.Errorf("prune events: %w", err)
 	}
 	result.EventsDeleted = eventsPruned
-	log.Printf("[cleanup] [%s] database rows pruned: %d metrics rows, %d container event rows",
-		trigger, metricsPruned, eventsPruned)
+
+	containersPruned, err := m.executor.PruneExitedContainers(ctx, plan.ContainersCutoffTS)
+	if err != nil {
+		result.FinishedAt = time.Now().UTC()
+		result.DurationMs = result.FinishedAt.Sub(startedAt).Milliseconds()
+		_ = m.persistRunRecord(ctx, &result)
+		log.Printf("[cleanup] [%s] exited containers prune failed: %v", trigger, err)
+		return result, fmt.Errorf("prune exited containers: %w", err)
+	}
+	log.Printf("[cleanup] [%s] database rows pruned: %d metrics rows, %d container event rows, %d exited container rows",
+		trigger, metricsPruned, eventsPruned, containersPruned)
 
 	// 6. Post-Cleanup Database Maintenance
 	if m.maintainer != nil {
@@ -396,6 +405,9 @@ func (m *CleanupManager) ComputeRetentionPlan(now time.Time, dryRun bool) (Reten
 		plan.EventsCutoffTS = now.Add(-30 * 24 * time.Hour).Unix()
 	}
 
+	// 6. Exited containers cutoff (defaults to 24h)
+	plan.ContainersCutoffTS = m.containersCutoffTS(now)
+
 	// Discover expired chunk files
 	sourcesMap := make(map[int64]string)
 	if m.store != nil && m.store.Config != nil {
@@ -455,6 +467,17 @@ func (m *CleanupManager) persistRunRecord(ctx context.Context, res *CleanupRunRe
 	})
 }
 
+// containersCutoffTS returns the Unix seconds cutoff for pruning exited containers.
+func (m *CleanupManager) containersCutoffTS(now time.Time) int64 {
+	d := 24 * time.Hour
+	if m.cfg != nil && m.cfg.Retention.ContainersExited != "" {
+		if parsed, err := config.ParseDuration(m.cfg.Retention.ContainersExited); err == nil && parsed > 0 {
+			d = parsed
+		}
+	}
+	return now.Add(-d).Unix()
+}
+
 // Start launches the background size-cap watchdog and scheduled cleanup timers.
 func (m *CleanupManager) Start(ctx context.Context) {
 	m.wg.Add(1)
@@ -491,6 +514,16 @@ func (m *CleanupManager) Start(ctx context.Context) {
 				if now.UTC().Hour() == 3 && now.UTC().Minute() == 0 {
 					log.Printf("[cleanup] scheduler: daily retention cleanup triggered (03:00 UTC)")
 					_, _ = m.Run(ctx, "scheduled", false)
+				}
+
+				// 3. Hourly exited container prune (at minute 0 of each hour)
+				if now.UTC().Minute() == 0 && m.executor != nil {
+					cutoffTS := m.containersCutoffTS(now.UTC())
+					if pruned, err := m.executor.PruneExitedContainers(ctx, cutoffTS); err != nil {
+						log.Printf("[cleanup] hourly exited container prune failed: %v", err)
+					} else if pruned > 0 {
+						log.Printf("[cleanup] hourly prune: removed %d expired exited containers", pruned)
+					}
 				}
 			}
 		}

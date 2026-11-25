@@ -174,6 +174,9 @@ server: {}
 		if cfg.Retention.Logs != "7d" {
 			t.Errorf("expected default retention logs 7d, got %s", cfg.Retention.Logs)
 		}
+		if cfg.Retention.ContainersExited != "24h" {
+			t.Errorf("expected default retention containers_exited 24h, got %s", cfg.Retention.ContainersExited)
+		}
 		if cfg.Cleanup.BatchSize != 5000 {
 			t.Errorf("expected default batch size 5000, got %d", cfg.Cleanup.BatchSize)
 		}
@@ -347,6 +350,20 @@ func TestValidateConfig(t *testing.T) {
 				c.Retention.Logs = "0s"
 			},
 			expectErr: "retention.logs must be a positive duration",
+		},
+		{
+			name: "invalid retention.containers_exited negative",
+			modify: func(c *Config) {
+				c.Retention.ContainersExited = "-1h"
+			},
+			expectErr: "retention.containers_exited invalid",
+		},
+		{
+			name: "invalid retention.containers_exited zero",
+			modify: func(c *Config) {
+				c.Retention.ContainersExited = "0s"
+			},
+			expectErr: "retention.containers_exited must be a positive duration",
 		},
 		{
 			name: "discord enabled without webhook",

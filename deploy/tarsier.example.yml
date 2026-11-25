@@ -113,6 +113,13 @@ retention:
   # Default: "90d"
   metrics_1d: "90d"
 
+  # Retention horizon for exited, dead, or destroyed container records in 'config.db'.
+  # Containers that have not restarted within this window are pruned along with their
+  # lifecycle events (raw log chunks remain governed by 'retention.logs').
+  # Valid units: "h", "d" (e.g. "24h", "48h", "7d").
+  # Default: "24h"
+  containers_exited: "24h"
+
 # ------------------------------------------------------------------------------
 # 5. Host Telemetry Collection (Linux /proc, /sys, statfs)
 # ------------------------------------------------------------------------------

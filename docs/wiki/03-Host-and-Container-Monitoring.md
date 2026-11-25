@@ -50,6 +50,7 @@ All four sample tables use `WITHOUT ROWID` clustered primary keys `(series_id, t
 * **Discovery & Glob Filtering (`discovery.go`, `filter.go`):** Periodically lists containers and filters names using `docker.include` and `docker.exclude` glob patterns (default excludes `["tarsier"]`).
 * **Resource Stats Streaming (`stats.go`):** Computes container CPU %, memory used vs. memory limit, and network RX/TX byte rates every `docker.stats_interval` (`10s`).
 * **Lifecycle Event Streaming (`events.go`):** Subscribes to the Docker `/events` stream and persists `start`, `stop`, `die`, `oom`, `restart`, `pause`, and `unpause` transitions directly into the `container_event` table of `config.db`, incrementing `restart_count` and feeding the container alert evaluator in real time.
+* **Exited Container Pruning (`retention.containers_exited`):** Containers that enter an `exited`, `dead`, or `destroyed` state and do not restart within `retention.containers_exited` (default `24h`) are automatically filtered out of `#containers` API responses and permanently pruned from `container` and `container_event` in `config.db` during startup discovery sync, hourly background watchdog ticks, and daily cleanup runs. Raw log chunks under `/data/logs/<source_id>/` remain governed independently by `retention.logs`.
 
 ### Containers List View
 
