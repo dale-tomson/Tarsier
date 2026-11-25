@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="#beta-notice"><img src="https://img.shields.io/badge/release-v0.2.0--beta-orange.svg" alt="Release: v0.2.0-beta"></a>
+  <a href="https://github.com/dale-tomson/Tarsier/releases"><img src="https://img.shields.io/github/v/release/dale-tomson/Tarsier?include_prereleases&sort=semver&color=orange" alt="Release Version"></a>
   <a href="https://golang.org"><img src="https://img.shields.io/badge/go-1.27-blue.svg" alt="Go Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
   <a href="#hard-operational-budgets"><img src="https://img.shields.io/badge/cgo-disabled-success.svg" alt="Zero CGO"></a>
@@ -27,7 +27,7 @@
 <a name="beta-notice"></a>
 > [!WARNING]
 > ### BETA TEST SOFTWARE
-> Tarsier is currently in active Beta testing (`v0.2.0-beta`). Core architectural systems and functional modules are implemented and tested, but breaking changes to configuration schemas, REST API contracts, or on-disk storage layouts may occur before a stable `v1.0.0` release.
+> Tarsier is currently in active Beta testing. Core architectural systems and functional modules are implemented and tested, but breaking changes to configuration schemas, REST API contracts, or on-disk storage layouts may occur before a stable `v1.0.0` release.
 
 ---
 

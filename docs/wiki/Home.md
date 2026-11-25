@@ -2,7 +2,7 @@
 
 **Tarsier** is a lightweight, self-hosted, single-server observability engine and web dashboard. Distributed as a single static Go binary (`CGO_ENABLED=0`) and multi-architecture container image (`linux/amd64`, `linux/arm64`), Tarsier combines host telemetry, Docker container monitoring, Zstandard-compressed log chunk storage with fast search, an in-memory alert state machine, automated SQLite compaction, and pre-cleanup digest reports into one self-contained process.
 
-> **Beta Software Notice:** Tarsier is currently in active Beta (`v0.2.0-beta`). Core subsystems are implemented and tested with race detection enabled, though breaking changes to configuration schemas, REST endpoints, or on-disk storage formats may occur before `v1.0.0`.
+> **Beta Software Notice:** Tarsier is currently in active Beta. Core subsystems are implemented and tested with race detection enabled, though breaking changes to configuration schemas, REST endpoints, or on-disk storage formats may occur before `v1.0.0`.
 
 ---
 
