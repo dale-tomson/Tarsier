@@ -427,3 +427,86 @@ func TestCleanupManager_Run_TextDeliveryPayload(t *testing.T) {
 		t.Errorf("expected full report in Attachment, got:\n%s", string(capSender.payload.Attachment))
 	}
 }
+
+func TestExecutor_PruneExitedContainers(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	store, err := db.Open(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 11, 15, 14, 0, 0, 0, time.UTC).Unix()
+	cutoffTS := now - 24*3600
+
+	err = store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(txCtx, `
+			INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+			VALUES
+				('c-expired-exited', 'runner-1', 'alpine:3.18', ?, ?, 'exited', 0),
+				('c-expired-dead', 'runner-2', 'alpine:3.18', ?, ?, 'dead', 0),
+				('c-expired-destroyed', 'runner-3', 'alpine:3.18', ?, ?, 'destroyed', 0),
+				('c-recent-exited', 'recent-job', 'alpine:3.18', ?, ?, 'exited', 0),
+				('c-running-old', 'long-running', 'nginx:alpine', ?, ?, 'running', 0);
+
+			INSERT INTO container_event (container_id, ts, type, detail)
+			VALUES
+				('c-expired-exited', ?, 'die', 'exit_code=0'),
+				('c-expired-dead', ?, 'die', 'exit_code=1'),
+				('c-expired-destroyed', ?, 'destroy', ''),
+				('c-recent-exited', ?, 'die', 'exit_code=0'),
+				('c-running-old', ?, 'start', '');
+		`,
+			now-26*3600, now-25*3600,
+			now-30*3600, now-28*3600,
+			now-26*3600, now-25*3600,
+			now-14*3600, now-12*3600,
+			now-72*3600, now-48*3600,
+			now-25*3600,
+			now-28*3600,
+			now-25*3600,
+			now-12*3600,
+			now-72*3600,
+		)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed containers and events failed: %v", err)
+	}
+
+	executor := NewRetentionExecutor(tmpDir, store.Metrics, store.Config, 5000, 10*time.Millisecond)
+	pruned, err := executor.PruneExitedContainers(ctx, cutoffTS)
+	if err != nil {
+		t.Fatalf("PruneExitedContainers failed: %v", err)
+	}
+	if pruned != 3 {
+		t.Fatalf("expected 3 pruned containers, got %d", pruned)
+	}
+
+	var remainingContainers int
+	if err := store.Config.RO.QueryRowContext(ctx, `SELECT COUNT(*) FROM container;`).Scan(&remainingContainers); err != nil {
+		t.Fatalf("count remaining containers: %v", err)
+	}
+	if remainingContainers != 2 {
+		t.Errorf("expected 2 remaining containers, got %d", remainingContainers)
+	}
+
+	var remainingEvents int
+	if err := store.Config.RO.QueryRowContext(ctx, `SELECT COUNT(*) FROM container_event;`).Scan(&remainingEvents); err != nil {
+		t.Fatalf("count remaining container_event: %v", err)
+	}
+	if remainingEvents != 2 {
+		t.Errorf("expected 2 remaining container_event rows, got %d", remainingEvents)
+	}
+
+	// Verify specific kept container IDs
+	for _, keptID := range []string{"c-recent-exited", "c-running-old"} {
+		var count int
+		_ = store.Config.RO.QueryRowContext(ctx, `SELECT COUNT(*) FROM container WHERE id = ?;`, keptID).Scan(&count)
+		if count != 1 {
+			t.Errorf("expected container %s to be kept", keptID)
+		}
+	}
+}

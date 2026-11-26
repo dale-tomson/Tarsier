@@ -45,6 +45,8 @@ var ConfigSchemaDDL = []string{
 
 	`CREATE INDEX IF NOT EXISTS idx_container_event_ts ON container_event(container_id, ts DESC);`,
 
+	`CREATE INDEX IF NOT EXISTS idx_container_status_last_seen ON container(last_status, last_seen);`,
+
 	`CREATE TABLE IF NOT EXISTS alert_rule (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL UNIQUE,

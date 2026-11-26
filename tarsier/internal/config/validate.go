@@ -151,6 +151,11 @@ func Validate(c *Config) error {
 	if err := validatePositiveDuration("retention.metrics_1d", c.Retention.Metrics1d); err != nil {
 		errs = append(errs, err.Error())
 	}
+	if c.Retention.ContainersExited != "" {
+		if err := validatePositiveDuration("retention.containers_exited", c.Retention.ContainersExited); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
 
 	// Host validation
 	if err := validatePositiveDuration("host.interval", c.Host.Interval); err != nil {

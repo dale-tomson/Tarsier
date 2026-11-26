@@ -30,6 +30,7 @@ retention:
   metrics_1m: "7d"
   metrics_5m: "30d"
   metrics_1d: "90d"
+  containers_exited: "24h"
 
 # Host metrics collection
 host:

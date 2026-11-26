@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -559,5 +560,83 @@ func TestDiscovery_SyncContainersPreservesRestartCount(t *testing.T) {
 	}
 	if restarts != 5 {
 		t.Errorf("expected preserved restart_count 5, got %d", restarts)
+	}
+}
+
+func TestDiscovery_SyncContainersPrunesExpiredExited(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dbDir := t.TempDir()
+	store, err := db.Open(ctx, dbDir)
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Now().Unix()
+
+	// Seed expired exited/dead containers (> 24h ago) and a recently exited one (< 24h ago)
+	err = store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(txCtx, `
+			INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+			VALUES
+				('old-runner-1', 'ephemeral-1', 'alpine:3.18', ?, ?, 'exited', 0),
+				('old-runner-2', 'ephemeral-2', 'alpine:3.18', ?, ?, 'dead', 0),
+				('recent-exited', 'recent-job', 'alpine:3.18', ?, ?, 'exited', 0);
+
+			INSERT INTO container_event (container_id, ts, type, detail)
+			VALUES
+				('old-runner-1', ?, 'die', 'exit_code=0'),
+				('old-runner-2', ?, 'die', 'exit_code=1'),
+				('recent-exited', ?, 'die', 'exit_code=0');
+		`,
+			now-26*3600, now-25*3600,
+			now-28*3600, now-26*3600,
+			now-3*3600, now-2*3600,
+			now-25*3600,
+			now-26*3600,
+			now-2*3600,
+		)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed expired containers failed: %v", err)
+	}
+
+	activeContainers := []ContainerInfo{
+		{
+			ID:           "c-active",
+			Name:         "web-app",
+			Image:        "nginx:alpine",
+			State:        "running",
+			RestartCount: 0,
+		},
+	}
+
+	if err := SyncContainers(ctx, store.Config, activeContainers, 500); err != nil {
+		t.Fatalf("SyncContainers failed: %v", err)
+	}
+
+	// Expired containers and their events should be deleted
+	for _, expiredID := range []string{"old-runner-1", "old-runner-2"} {
+		var cCount, evCount int
+		_ = store.Config.RO.QueryRowContext(ctx, `SELECT COUNT(*) FROM container WHERE id = ?;`, expiredID).Scan(&cCount)
+		_ = store.Config.RO.QueryRowContext(ctx, `SELECT COUNT(*) FROM container_event WHERE container_id = ?;`, expiredID).Scan(&evCount)
+		if cCount != 0 {
+			t.Errorf("expected expired container %s to be pruned, count=%d", expiredID, cCount)
+		}
+		if evCount != 0 {
+			t.Errorf("expected expired container_event for %s to be pruned, count=%d", expiredID, evCount)
+		}
+	}
+
+	// Recently exited and active containers should remain
+	for _, keptID := range []string{"recent-exited", "c-active"} {
+		var cCount int
+		_ = store.Config.RO.QueryRowContext(ctx, `SELECT COUNT(*) FROM container WHERE id = ?;`, keptID).Scan(&cCount)
+		if cCount != 1 {
+			t.Errorf("expected container %s to remain, count=%d", keptID, cCount)
+		}
 	}
 }

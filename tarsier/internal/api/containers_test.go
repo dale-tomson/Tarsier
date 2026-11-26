@@ -21,14 +21,15 @@ func TestContainersAPI_ListMergesLiveAndDailyStats(t *testing.T) {
 	defer store.Close()
 
 	// 1. Seed container records in config.db
+	recentLastSeen := now.Unix() - 1000
 	err := store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(txCtx, `
 			INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
 			VALUES
 				('id-green', 'service-green', 'alpine:3.18', 1700000000, 1700001000, 'running', 0),
 				('id-amber', 'service-amber', 'redis:7', 1700000000, 1700001000, 'running', 2),
-				('id-red', 'service-red', 'postgres:16', 1700000000, 1700001000, 'exited', 0);
-		`)
+				('id-red', 'service-red', 'postgres:16', 1700000000, ?, 'exited', 0);
+		`, recentLastSeen)
 		return err
 	})
 	if err != nil {
@@ -245,14 +246,15 @@ func TestContainersAPI_DeduplicatesMultipleIDsPerName(t *testing.T) {
 	defer store.Close()
 
 	// Seed multiple rows for same container name across restarts/recreations
+	recentLastSeen := now.Unix() - 1000
 	err := store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(txCtx, `
 			INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
 			VALUES
 				('old-id', 'recreated-app', 'nginx:alpine', 1700000000, 1700001000, 'running', 0),
 				('new-id', 'recreated-app', 'nginx:alpine', 1700001000, 1700002000, 'running', 1),
-				('exited-id', 'other-app', 'redis:7', 1700000500, 1700000900, 'exited', 0);
-		`)
+				('exited-id', 'other-app', 'redis:7', 1700000500, ?, 'exited', 0);
+		`, recentLastSeen)
 		return err
 	})
 	if err != nil {
@@ -288,6 +290,85 @@ func TestContainersAPI_DeduplicatesMultipleIDsPerName(t *testing.T) {
 				t.Errorf("expected restart count 1, got %d", c.RestartCount)
 			}
 		}
+	}
+}
+
+func TestContainersAPI_ExcludesExpiredExitedContainers(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 15, 14, 0, 0, 0, time.UTC)
+	clock := &mockClock{now: now}
+
+	srv, store, cookie := setupMetricsTestServer(t, clock)
+	defer store.Close()
+
+	nowUnix := now.Unix()
+	err := store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(txCtx, `
+			INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+			VALUES
+				('id-active', 'active-app', 'nginx:alpine', ?, ?, 'running', 0),
+				('id-recent-exited', 'recent-job', 'alpine:3.18', ?, ?, 'exited', 0),
+				('id-old-exited', 'old-runner-1', 'alpine:3.18', ?, ?, 'exited', 0),
+				('id-old-dead', 'old-runner-2', 'alpine:3.18', ?, ?, 'dead', 0),
+				('id-old-destroyed', 'old-runner-3', 'alpine:3.18', ?, ?, 'destroyed', 0);
+		`,
+			nowUnix-48*3600, nowUnix-36*3600,
+			nowUnix-13*3600, nowUnix-12*3600,
+			nowUnix-30*3600, nowUnix-25*3600,
+			nowUnix-30*3600, nowUnix-26*3600,
+			nowUnix-30*3600, nowUnix-25*3600,
+		)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed containers failed: %v", err)
+	}
+
+	// 1. Listing should only include active-app and recent-job
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp ContainersListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+
+	if len(resp.Containers) != 2 {
+		t.Fatalf("expected 2 containers, got %d: %+v", len(resp.Containers), resp.Containers)
+	}
+
+	names := map[string]bool{}
+	for _, c := range resp.Containers {
+		names[c.Name] = true
+	}
+	if !names["active-app"] || !names["recent-job"] {
+		t.Errorf("expected active-app and recent-job, got %v", names)
+	}
+
+	// 2. Detail endpoint for expired exited container should return 404
+	reqExpired := httptest.NewRequest(http.MethodGet, "/api/v1/containers/old-runner-1", nil)
+	reqExpired.AddCookie(cookie)
+	recExpired := httptest.NewRecorder()
+	srv.Router().ServeHTTP(recExpired, reqExpired)
+
+	if recExpired.Code != http.StatusNotFound {
+		t.Errorf("expected 404 Not Found for expired exited container, got %d", recExpired.Code)
+	}
+
+	// 3. Detail endpoint for recent exited container should return 200
+	reqRecent := httptest.NewRequest(http.MethodGet, "/api/v1/containers/recent-job", nil)
+	reqRecent.AddCookie(cookie)
+	recRecent := httptest.NewRecorder()
+	srv.Router().ServeHTTP(recRecent, reqRecent)
+
+	if recRecent.Code != http.StatusOK {
+		t.Errorf("expected 200 OK for recent exited container, got %d: %s", recRecent.Code, recRecent.Body.String())
 	}
 }
 

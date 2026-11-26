@@ -34,11 +34,12 @@ type StorageConfig struct {
 }
 
 type RetentionConfig struct {
-	Logs       string `yaml:"logs" json:"logs"`
-	MetricsRaw string `yaml:"metrics_raw" json:"metrics_raw"`
-	Metrics1m  string `yaml:"metrics_1m" json:"metrics_1m"`
-	Metrics5m  string `yaml:"metrics_5m" json:"metrics_5m"`
-	Metrics1d  string `yaml:"metrics_1d" json:"metrics_1d"`
+	Logs             string `yaml:"logs" json:"logs"`
+	MetricsRaw       string `yaml:"metrics_raw" json:"metrics_raw"`
+	Metrics1m        string `yaml:"metrics_1m" json:"metrics_1m"`
+	Metrics5m        string `yaml:"metrics_5m" json:"metrics_5m"`
+	Metrics1d        string `yaml:"metrics_1d" json:"metrics_1d"`
+	ContainersExited string `yaml:"containers_exited" json:"containers_exited"`
 }
 
 type HostConfig struct {
@@ -157,11 +158,12 @@ func NewDefaultConfig() *Config {
 			MetricsMaxSize: "256MiB",
 		},
 		Retention: RetentionConfig{
-			Logs:       "7d",
-			MetricsRaw: "24h",
-			Metrics1m:  "7d",
-			Metrics5m:  "30d",
-			Metrics1d:  "90d",
+			Logs:             "7d",
+			MetricsRaw:       "24h",
+			Metrics1m:        "7d",
+			Metrics5m:        "30d",
+			Metrics1d:        "90d",
+			ContainersExited: "24h",
 		},
 		Host: HostConfig{
 			Enabled:       boolPtr(true),
@@ -283,6 +285,9 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.Retention.Metrics1d == "" {
 		c.Retention.Metrics1d = def.Retention.Metrics1d
+	}
+	if c.Retention.ContainersExited == "" {
+		c.Retention.ContainersExited = def.Retention.ContainersExited
 	}
 
 	if c.Host.Enabled == nil {

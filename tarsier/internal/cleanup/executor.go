@@ -387,3 +387,44 @@ func (e *RetentionExecutor) PruneEvents(ctx context.Context, plan RetentionPlan)
 
 	return totalPruned, nil
 }
+
+// PruneExitedContainers deletes exited, dead, or destroyed container records (and their container_event rows)
+// that have not restarted since cutoffTS.
+func (e *RetentionExecutor) PruneExitedContainers(ctx context.Context, cutoffTS int64) (int64, error) {
+	if e.configDB == nil || cutoffTS <= 0 {
+		return 0, nil
+	}
+
+	var deletedCount int64
+	err := e.configDB.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(txCtx, `
+			DELETE FROM container_event
+			WHERE container_id IN (
+				SELECT id FROM container
+				WHERE last_status IN ('exited', 'dead', 'destroyed') AND last_seen < ?
+			);
+		`, cutoffTS); err != nil {
+			return fmt.Errorf("delete container_event: %w", err)
+		}
+
+		res, err := tx.ExecContext(txCtx, `
+			DELETE FROM container
+			WHERE last_status IN ('exited', 'dead', 'destroyed') AND last_seen < ?;
+		`, cutoffTS)
+		if err != nil {
+			return fmt.Errorf("delete container: %w", err)
+		}
+
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("rows affected: %w", err)
+		}
+		deletedCount = affected
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("prune exited containers: %w", err)
+	}
+
+	return deletedCount, nil
+}
