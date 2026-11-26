@@ -209,7 +209,7 @@ func (c *StatsCollector) HandleEvent(ev ContainerEvent) {
 			Image: ev.Image,
 			State: "running",
 		}
-	case "die", "stop", "destroy":
+	case "die", "stop", "destroy", "kill":
 		delete(c.containers, ev.ContainerID)
 		delete(c.prevCounters, ev.ContainerID)
 	}

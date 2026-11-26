@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dale-tomson/Tarsier/internal/db"
@@ -34,7 +35,7 @@ func SyncContainers(ctx context.Context, configDB *db.Handle, containers []Conta
 				image         = excluded.image,
 				last_seen     = excluded.last_seen,
 				last_status   = excluded.last_status,
-				restart_count = excluded.restart_count;
+				restart_count = MAX(container.restart_count, excluded.restart_count);
 		`)
 		if err != nil {
 			return fmt.Errorf("prepare container upsert: %w", err)
@@ -52,21 +53,22 @@ func SyncContainers(ctx context.Context, configDB *db.Handle, containers []Conta
 		}
 		defer stmtSource.Close()
 
-		// 1. Mark any previously running containers whose IDs are absent from the active running list as 'exited'
-		activeRunningIDs := make(map[string]bool)
+		// 1. Mark any previously active containers whose IDs are absent from the active list as 'exited'
+		activeIDs := make(map[string]bool)
 		for _, c := range containers {
-			if c.State == "running" {
-				activeRunningIDs[c.ID] = true
+			st := strings.ToLower(strings.TrimSpace(c.State))
+			if st == "running" || st == "restarting" {
+				activeIDs[c.ID] = true
 			}
 		}
 
-		rows, err := tx.QueryContext(ctx, `SELECT id, name FROM container WHERE last_status = 'running';`)
+		rows, err := tx.QueryContext(ctx, `SELECT id, name FROM container WHERE last_status IN ('running', 'restarting');`)
 		if err == nil {
 			var staleIDs []string
 			for rows.Next() {
 				var sid, sname string
 				if err := rows.Scan(&sid, &sname); err == nil {
-					if !activeRunningIDs[sid] {
+					if !activeIDs[sid] {
 						staleIDs = append(staleIDs, sid)
 					}
 				}
@@ -78,10 +80,10 @@ func SyncContainers(ctx context.Context, configDB *db.Handle, containers []Conta
 			}
 		}
 
-		// 2. For each container in the current sync list, supersede older records with the same name if running
+		// 2. For each container in the current sync list, supersede older records with the same name if active
 		stmtSupersede, err := tx.PrepareContext(ctx, `
 			UPDATE container SET last_status = 'exited'
-			WHERE name = ? AND id != ? AND last_status = 'running';
+			WHERE name = ? AND id != ? AND last_status IN ('running', 'restarting');
 		`)
 		if err != nil {
 			return fmt.Errorf("prepare container supersede: %w", err)
@@ -89,13 +91,14 @@ func SyncContainers(ctx context.Context, configDB *db.Handle, containers []Conta
 		defer stmtSupersede.Close()
 
 		for _, c := range containers {
-			if c.State == "running" && c.Name != "" {
+			state := strings.ToLower(strings.TrimSpace(c.State))
+			if (state == "running" || state == "restarting") && c.Name != "" {
 				if _, err := stmtSupersede.ExecContext(ctx, c.Name, c.ID); err != nil {
 					return fmt.Errorf("exec container supersede (%s): %w", c.Name, err)
 				}
 			}
 
-			if _, err := stmtContainer.ExecContext(ctx, c.ID, c.Name, c.Image, now, now, c.State, c.RestartCount); err != nil {
+			if _, err := stmtContainer.ExecContext(ctx, c.ID, c.Name, c.Image, now, now, state, c.RestartCount); err != nil {
 				return fmt.Errorf("exec container upsert (%s): %w", c.ID, err)
 			}
 

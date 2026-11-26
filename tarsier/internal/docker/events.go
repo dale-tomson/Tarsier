@@ -2,9 +2,11 @@ package docker
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -23,7 +25,7 @@ type ContainerEvent struct {
 	ContainerID   string `json:"container_id"`
 	ContainerName string `json:"container_name"` // Normalized without leading '/'
 	Image         string `json:"image"`
-	Action        string `json:"action"` // "start", "stop", "die", "oom", "restart", "destroy"
+	Action        string `json:"action"` // "start", "stop", "die", "oom", "restart", "destroy", "kill"
 	TS            int64  `json:"ts"`     // Unix epoch seconds
 	ExitCode      int    `json:"exit_code,omitempty"`
 	Detail        string `json:"detail"` // e.g. "exit_code=137 oom=true"
@@ -59,6 +61,23 @@ type EventWatcher struct {
 type EventWatcherOptions struct {
 	InitialCursorTS int64
 	OnEvent         func(ContainerEvent)
+}
+
+// ResolveInitialCursor resolves the starting event stream timestamp from config.db.
+// If container_event has recorded events, it returns MAX(ts); otherwise it falls back
+// to now minus lookback (defaulting to 24h when lookback <= 0).
+func ResolveInitialCursor(ctx context.Context, configDB *db.Handle, lookback time.Duration) int64 {
+	if lookback <= 0 {
+		lookback = 24 * time.Hour
+	}
+	if configDB != nil && configDB.RO != nil {
+		var maxTS sql.NullInt64
+		err := configDB.RO.QueryRowContext(ctx, `SELECT MAX(ts) FROM container_event;`).Scan(&maxTS)
+		if err == nil && maxTS.Valid && maxTS.Int64 > 0 {
+			return maxTS.Int64
+		}
+	}
+	return time.Now().Add(-lookback).Unix()
 }
 
 // NewEventWatcher initializes an EventWatcher.
@@ -191,36 +210,35 @@ func (w *EventWatcher) stream(ctx context.Context) error {
 
 	w.setConnected(true)
 
-	// Bounded scanner: 16 KiB initial buffer, max 64 KiB line length
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 16<<10), 64<<10)
+	// Unbounded line reader so containers with large labels/annotations (>64 KiB) do not fail decoding.
+	reader := bufio.NewReaderSize(resp.Body, 16<<10)
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) > 0 {
+			var frame dockerEventFrame
+			if jsonErr := json.Unmarshal(trimmed, &frame); jsonErr == nil {
+				w.updateCursor(frame.Time)
 
-		var frame dockerEventFrame
-		if err := json.Unmarshal(line, &frame); err != nil {
-			// Skip corrupted frames
-			continue
-		}
-
-		w.updateCursor(frame.Time)
-
-		if ev, ok := w.processFrame(frame); ok {
-			if err := w.persistAndDispatch(ctx, ev); err != nil {
-				log.Printf("Warning: failed to persist container event %s (%s): %v", ev.ContainerName, ev.Action, err)
+				if ev, ok := w.processFrame(frame); ok {
+					if pErr := w.persistAndDispatch(ctx, ev); pErr != nil {
+						log.Printf("Warning: failed to persist container event %s (%s): %v", ev.ContainerName, ev.Action, pErr)
+					}
+				}
 			}
 		}
-	}
 
-	if err := scanner.Err(); err != nil && ctx.Err() == nil {
-		return err
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return nil
+			}
+			if ctx.Err() != nil {
+				return nil
+			}
+			return readErr
+		}
 	}
-
-	return nil
 }
 
 func (w *EventWatcher) processFrame(frame dockerEventFrame) (ContainerEvent, bool) {
@@ -237,7 +255,7 @@ func (w *EventWatcher) processFrame(frame dockerEventFrame) (ContainerEvent, boo
 
 	// Filter down strictly to lifecycle actions
 	switch action {
-	case "start", "stop", "die", "oom", "restart", "destroy":
+	case "start", "stop", "die", "oom", "restart", "destroy", "kill":
 		// Tracked
 	default:
 		return ContainerEvent{}, false
@@ -277,6 +295,10 @@ func (w *EventWatcher) processFrame(frame dockerEventFrame) (ContainerEvent, boo
 		detail = "oom=true"
 	case "restart":
 		detail = "restarting"
+	case "kill":
+		if sig := frame.Actor.Attributes["signal"]; sig != "" {
+			detail = fmt.Sprintf("signal=%s", sig)
+		}
 	}
 
 	ev := ContainerEvent{
@@ -293,8 +315,54 @@ func (w *EventWatcher) processFrame(frame dockerEventFrame) (ContainerEvent, boo
 }
 
 func (w *EventWatcher) persistAndDispatch(ctx context.Context, ev ContainerEvent) error {
+	var (
+		inspect    ContainerInspect
+		inspectErr = errors.New("not inspected")
+	)
+
+	if (ev.Action == "start" || ev.Action == "die" || ev.Action == "restart") && w.client != nil && ev.ContainerID != "" {
+		inspectCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+		inspect, inspectErr = w.client.InspectContainer(inspectCtx, ev.ContainerID)
+		cancel()
+	}
+
 	if w.configDB != nil {
 		err := w.configDB.ExecWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			wasStart := ev.Action == "start"
+			newRestartCount := 0
+
+			if wasStart {
+				var prevStatus string
+				var prevRestartCount int
+				var existsInDB bool
+				rowErr := tx.QueryRowContext(ctx, `
+					SELECT last_status, restart_count FROM container WHERE id = ?;
+				`, ev.ContainerID).Scan(&prevStatus, &prevRestartCount)
+				if rowErr == nil {
+					existsInDB = true
+				}
+
+				inspectRestarts := 0
+				if inspectErr == nil {
+					inspectRestarts = inspect.RestartCount
+				}
+
+				isRestart := inspectRestarts > 0 || (existsInDB && (prevStatus == "exited" || prevStatus == "dead" || prevStatus == "restarting"))
+				if isRestart {
+					newRestartCount = prevRestartCount
+					if inspectErr == nil && inspectRestarts > newRestartCount {
+						newRestartCount = inspectRestarts
+					} else if existsInDB && (prevStatus == "exited" || prevStatus == "dead" || prevStatus == "restarting") {
+						newRestartCount = prevRestartCount + 1
+					} else if newRestartCount == 0 {
+						newRestartCount = 1
+					}
+
+					ev.Action = "restart"
+					ev.Detail = fmt.Sprintf("restarted (count=%d)", newRestartCount)
+				}
+			}
+
 			// 1. Insert into container_event table
 			_, err := tx.ExecContext(ctx, `
 				INSERT INTO container_event (container_id, ts, type, detail)
@@ -310,7 +378,7 @@ func (w *EventWatcher) persistAndDispatch(ctx context.Context, ev ContainerEvent
 				if ev.ContainerName != "" {
 					_, _ = tx.ExecContext(ctx, `
 						UPDATE container SET last_status = 'exited'
-						WHERE name = ? AND id != ? AND last_status = 'running';
+						WHERE name = ? AND id != ? AND last_status IN ('running', 'restarting');
 					`, ev.ContainerName, ev.ContainerID)
 				}
 
@@ -321,20 +389,58 @@ func (w *EventWatcher) persistAndDispatch(ctx context.Context, ev ContainerEvent
 						name = CASE WHEN excluded.name != '' THEN excluded.name ELSE container.name END,
 						image = CASE WHEN excluded.image != '' THEN excluded.image ELSE container.image END,
 						last_status = 'running',
-						last_seen = excluded.last_seen;
+						last_seen = excluded.last_seen,
+						restart_count = MAX(container.restart_count, excluded.restart_count);
 				`, ev.ContainerID, ev.ContainerName, ev.Image, ev.TS, ev.TS)
 
 			case "restart":
+				if ev.ContainerName != "" {
+					_, _ = tx.ExecContext(ctx, `
+						UPDATE container SET last_status = 'exited'
+						WHERE name = ? AND id != ? AND last_status IN ('running', 'restarting');
+					`, ev.ContainerName, ev.ContainerID)
+				}
+
+				if wasStart {
+					_, err = tx.ExecContext(ctx, `
+						INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+						VALUES (?, ?, ?, ?, ?, 'running', ?)
+						ON CONFLICT(id) DO UPDATE SET
+							name = CASE WHEN excluded.name != '' THEN excluded.name ELSE container.name END,
+							image = CASE WHEN excluded.image != '' THEN excluded.image ELSE container.image END,
+							last_status = 'running',
+							last_seen = excluded.last_seen,
+							restart_count = MAX(container.restart_count, excluded.restart_count);
+					`, ev.ContainerID, ev.ContainerName, ev.Image, ev.TS, ev.TS, newRestartCount)
+				} else {
+					inspectRestarts := 1
+					if inspectErr == nil && inspect.RestartCount > inspectRestarts {
+						inspectRestarts = inspect.RestartCount
+					}
+					_, err = tx.ExecContext(ctx, `
+						INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+						VALUES (?, ?, ?, ?, ?, 'running', ?)
+						ON CONFLICT(id) DO UPDATE SET
+							last_status = 'running',
+							last_seen = excluded.last_seen,
+							restart_count = MAX(container.restart_count + 1, excluded.restart_count);
+					`, ev.ContainerID, ev.ContainerName, ev.Image, ev.TS, ev.TS, inspectRestarts)
+				}
+
+			case "die":
+				dieStatus := "exited"
+				if inspectErr == nil && strings.EqualFold(strings.TrimSpace(inspect.State.Status), "restarting") {
+					dieStatus = "restarting"
+				}
 				_, err = tx.ExecContext(ctx, `
 					INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
-					VALUES (?, ?, ?, ?, ?, 'running', 1)
+					VALUES (?, ?, ?, ?, ?, ?, 0)
 					ON CONFLICT(id) DO UPDATE SET
-						last_status = 'running',
-						last_seen = excluded.last_seen,
-						restart_count = container.restart_count + 1;
-				`, ev.ContainerID, ev.ContainerName, ev.Image, ev.TS, ev.TS)
+						last_status = excluded.last_status,
+						last_seen = excluded.last_seen;
+				`, ev.ContainerID, ev.ContainerName, ev.Image, ev.TS, ev.TS, dieStatus)
 
-			case "die", "stop":
+			case "stop":
 				_, err = tx.ExecContext(ctx, `
 					INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
 					VALUES (?, ?, ?, ?, ?, 'exited', 0)
@@ -374,6 +480,9 @@ func (w *EventWatcher) persistAndDispatch(ctx context.Context, ev ContainerEvent
 		if err != nil {
 			return err
 		}
+	} else if ev.Action == "start" && inspectErr == nil && inspect.RestartCount > 0 {
+		ev.Action = "restart"
+		ev.Detail = fmt.Sprintf("restarted (count=%d)", inspect.RestartCount)
 	}
 
 	// Dispatch to subscriber channel (non-blocking)

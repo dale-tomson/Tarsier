@@ -158,7 +158,7 @@ func TestContainersAPI_DetailAndNotFound(t *testing.T) {
 	}
 
 	// Seed sample_1d historical daily metrics
-	day1 := (now.Unix() / 86400) * 86400 - 86400
+	day1 := (now.Unix()/86400)*86400 - 86400
 	day2 := day1 - 86400
 	err = store.Metrics.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
 		res, err := tx.ExecContext(txCtx, `INSERT INTO series (entity, metric) VALUES ('container:api-service', 'cpu_pct');`)
@@ -369,5 +369,56 @@ func TestContainersAPI_ExcludesExpiredExitedContainers(t *testing.T) {
 
 	if recRecent.Code != http.StatusOK {
 		t.Errorf("expected 200 OK for recent exited container, got %d: %s", recRecent.Code, recRecent.Body.String())
+	}
+}
+
+func TestContainersAPI_DetailIncludesRecreatedContainerEvents(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 15, 14, 0, 0, 0, time.UTC)
+	clock := &mockClock{now: now}
+
+	srv, store, cookie := setupMetricsTestServer(t, clock)
+	defer store.Close()
+
+	err := store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(txCtx, `
+			INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+			VALUES
+				('old-id', 'web-api', 'api:v1', 1700000000, 1700001000, 'exited', 1),
+				('new-id', 'web-api', 'api:v2', 1700002000, 1700003000, 'running', 0);
+
+			INSERT INTO container_event (container_id, ts, type, detail)
+			VALUES
+				('old-id', 1700000500, 'die', 'exit_code=1'),
+				('new-id', 1700002000, 'start', '');
+		`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed config failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/containers/web-api", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var detail ContainerDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode detail failed: %v", err)
+	}
+
+	if detail.Container.ID != "new-id" {
+		t.Errorf("expected latest container ID 'new-id', got %q", detail.Container.ID)
+	}
+	if len(detail.RecentEvents) != 2 {
+		t.Fatalf("expected 2 events across old and new container IDs, got %d: %+v", len(detail.RecentEvents), detail.RecentEvents)
+	}
+	if detail.RecentEvents[0].Type != "start" || detail.RecentEvents[1].Type != "die" {
+		t.Errorf("unexpected recent events order/types: %+v", detail.RecentEvents)
 	}
 }

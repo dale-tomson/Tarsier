@@ -431,6 +431,138 @@ func TestDiscovery_SyncContainersSupersedesAndReconcilesStale(t *testing.T) {
 	}
 }
 
+func TestClient_ListContainersEnrichesFromInspect(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/containers/json", func(w http.ResponseWriter, r *http.Request) {
+		payload := `[
+			{
+				"Id": "c-restarting",
+				"Names": ["/crash-app"],
+				"Image": "app:1.0",
+				"State": "running",
+				"Status": "Restarting (1) 2 seconds ago",
+				"Created": 1700000000
+			},
+			{
+				"Id": "c-noinspect",
+				"Names": ["/basic-app"],
+				"Image": "busybox:latest",
+				"State": "running",
+				"Status": "Up 1 minute",
+				"Created": 1700000010
+			}
+		]`
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(payload))
+	})
+	mux.HandleFunc("/containers/c-restarting/json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"Id": "c-restarting",
+			"Name": "/crash-app",
+			"Image": "app:1.0",
+			"RestartCount": 4,
+			"State": {"Status": "restarting", "Running": false},
+			"Config": {"Tty": true},
+			"HostConfig": {"Memory": 536870912}
+		}`))
+	})
+	// c-noinspect deliberately returns 404 to verify graceful fallback to basic metadata
+
+	socketPath := newMockDockerServer(t, mux)
+	client := NewClient(socketPath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	list, err := client.ListContainers(ctx, true)
+	if err != nil {
+		t.Fatalf("ListContainers failed: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 containers, got %d", len(list))
+	}
+
+	c0 := list[0]
+	if c0.RestartCount != 4 {
+		t.Errorf("expected RestartCount 4, got %d", c0.RestartCount)
+	}
+	if c0.State != "restarting" {
+		t.Errorf("expected State 'restarting', got %q", c0.State)
+	}
+	if c0.MemoryLimit != 536870912 {
+		t.Errorf("expected MemoryLimit 536870912, got %d", c0.MemoryLimit)
+	}
+	if !c0.TTY {
+		t.Errorf("expected TTY true")
+	}
+
+	c1 := list[1]
+	if c1.Name != "basic-app" || c1.State != "running" || c1.RestartCount != 0 {
+		t.Errorf("unexpected fallback metadata for c-noinspect: %+v", c1)
+	}
+}
+
+func TestDiscovery_SyncContainersPreservesRestartCount(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dbDir := t.TempDir()
+	store, err := db.Open(ctx, dbDir)
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	// Initial sync with RestartCount 5 and state "restarting"
+	if err := SyncContainers(ctx, store.Config, []ContainerInfo{
+		{
+			ID:           "c1",
+			Name:         "worker",
+			Image:        "worker:v1",
+			State:        "restarting",
+			RestartCount: 5,
+		},
+	}, 500); err != nil {
+		t.Fatalf("initial SyncContainers failed: %v", err)
+	}
+
+	var status string
+	var restarts int
+	if err := store.Config.RO.QueryRowContext(ctx, `SELECT last_status, restart_count FROM container WHERE id = 'c1'`).Scan(&status, &restarts); err != nil {
+		t.Fatalf("query c1: %v", err)
+	}
+	if status != "restarting" || restarts != 5 {
+		t.Fatalf("expected status='restarting', restart_count=5; got status=%q, restart_count=%d", status, restarts)
+	}
+
+	// Subsequent sync where RestartCount is 0 (e.g. fallback list without inspect):
+	// restart_count MUST NOT be wiped out to 0!
+	if err := SyncContainers(ctx, store.Config, []ContainerInfo{
+		{
+			ID:           "c1",
+			Name:         "worker",
+			Image:        "worker:v1",
+			State:        "running",
+			RestartCount: 0,
+		},
+	}, 500); err != nil {
+		t.Fatalf("second SyncContainers failed: %v", err)
+	}
+
+	if err := store.Config.RO.QueryRowContext(ctx, `SELECT last_status, restart_count FROM container WHERE id = 'c1'`).Scan(&status, &restarts); err != nil {
+		t.Fatalf("query c1 after second sync: %v", err)
+	}
+	if status != "running" {
+		t.Errorf("expected status 'running', got %q", status)
+	}
+	if restarts != 5 {
+		t.Errorf("expected preserved restart_count 5, got %d", restarts)
+	}
+}
+
 func TestDiscovery_SyncContainersPrunesExpiredExited(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -264,7 +264,10 @@ func bootstrapCollectors(
 				log.Printf("Docker container log manager started")
 			}
 
-			eventWatcher := docker.NewEventWatcher(dockerClient, dockerFilter, store.Config)
+			initialCursor := docker.ResolveInitialCursor(ctx, store.Config, 24*time.Hour)
+			eventWatcher := docker.NewEventWatcher(dockerClient, dockerFilter, store.Config, docker.EventWatcherOptions{
+				InitialCursorTS: initialCursor,
+			})
 			dockerConnectedFunc = eventWatcher.Connected
 
 			statsInterval := parseDurationOrDefault(cfg.Docker.StatsInterval, 10*time.Second)
