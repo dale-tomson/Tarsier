@@ -407,3 +407,54 @@ func TestDockerLogFollower_CleanEOFAppliesBackoff(t *testing.T) {
 		t.Fatalf("expected 1 connection during 250ms window with backoff on clean EOF, got %d", got)
 	}
 }
+
+func TestDockerLogManager_HandleEventRestart(t *testing.T) {
+	var logReqCount atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/containers/c-rst/logs", func(w http.ResponseWriter, r *http.Request) {
+		logReqCount.Add(1)
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(makeFrame(1, []byte("2026-11-13T11:20:00.000000000Z restarted log line\n")))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	})
+
+	socketPath := newMockDockerServer(t, mux)
+	client := NewClient(socketPath)
+
+	logChan := make(chan model.LogEntry, 16)
+	mgr := NewLogManager(LogManagerConfig{
+		Client: client,
+		Sink:   model.LogChanSink(logChan),
+	})
+	defer mgr.Stop()
+
+	mgr.HandleEvent(ContainerEvent{
+		ContainerID:   "c-rst",
+		ContainerName: "restarted-app",
+		Image:         "app:v1",
+		Action:        "restart",
+	})
+
+	select {
+	case entry := <-logChan:
+		if string(entry.Message) != "restarted log line" {
+			t.Errorf("unexpected log message: %q", string(entry.Message))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for log line after restart HandleEvent")
+	}
+
+	if logReqCount.Load() < 1 {
+		t.Errorf("expected log stream request after restart event")
+	}
+
+	mgr.HandleEvent(ContainerEvent{
+		ContainerID:   "c-rst",
+		ContainerName: "restarted-app",
+		Action:        "kill",
+	})
+}

@@ -280,3 +280,33 @@ func TestStatsCollector_BoundedPoolAndRollupIntegration(t *testing.T) {
 		t.Errorf("container:service-00 cpu_pct not found in today's daily summary: %+v", statsList)
 	}
 }
+
+func TestStatsCollector_HandleEventKill(t *testing.T) {
+	sc := NewStatsCollector(nil, nil, nil)
+	sc.HandleEvent(ContainerEvent{
+		ContainerID:   "c-kill",
+		ContainerName: "kill-app",
+		Image:         "alpine",
+		Action:        "start",
+	})
+
+	sc.mu.RLock()
+	_, existsBefore := sc.containers["c-kill"]
+	sc.mu.RUnlock()
+	if !existsBefore {
+		t.Fatalf("expected c-kill in active containers after start")
+	}
+
+	sc.HandleEvent(ContainerEvent{
+		ContainerID:   "c-kill",
+		ContainerName: "kill-app",
+		Action:        "kill",
+	})
+
+	sc.mu.RLock()
+	_, existsAfter := sc.containers["c-kill"]
+	sc.mu.RUnlock()
+	if existsAfter {
+		t.Errorf("expected c-kill removed from active containers after kill event")
+	}
+}
