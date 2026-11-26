@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,7 +36,7 @@ func NewClient(socketPath string) *Client {
 			return d.DialContext(ctx, "unix", socketPath)
 		},
 		DisableKeepAlives: false,
-		MaxIdleConns:       4,
+		MaxIdleConns:      4,
 		IdleConnTimeout:   30 * time.Second,
 	}
 
@@ -95,7 +96,9 @@ func (c *Client) Ping(ctx context.Context) error {
 	return nil
 }
 
-// ListContainers queries GET /containers/json and returns a slice of normalized ContainerInfo.
+// ListContainers queries GET /containers/json and enriches each container with
+// InspectContainer metadata (RestartCount, State, MemoryLimit, TTY) using bounded
+// concurrency, falling back to basic listing metadata if inspect fails.
 func (c *Client) ListContainers(ctx context.Context, all bool) ([]ContainerInfo, error) {
 	endpoint := "http://localhost/containers/json"
 	if all {
@@ -152,6 +155,46 @@ func (c *Client) ListContainers(ctx context.Context, all bool) ([]ContainerInfo,
 			Status:  item.Status,
 			Created: item.Created,
 		})
+	}
+
+	if len(result) > 0 {
+		workers := 6
+		if len(result) < workers {
+			workers = len(result)
+		}
+
+		jobs := make(chan int, len(result))
+		for i := range result {
+			jobs <- i
+		}
+		close(jobs)
+
+		var wg sync.WaitGroup
+		for w := 0; w < workers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for idx := range jobs {
+					if ctx.Err() != nil {
+						return
+					}
+					inspectCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+					inspect, inspectErr := c.InspectContainer(inspectCtx, result[idx].ID)
+					cancel()
+					if inspectErr != nil {
+						continue
+					}
+
+					result[idx].RestartCount = inspect.RestartCount
+					if st := strings.ToLower(strings.TrimSpace(inspect.State.Status)); st != "" {
+						result[idx].State = st
+					}
+					result[idx].MemoryLimit = inspect.HostConfig.Memory
+					result[idx].TTY = inspect.Config.Tty
+				}
+			}()
+		}
+		wg.Wait()
 	}
 
 	return result, nil

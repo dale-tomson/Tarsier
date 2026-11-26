@@ -152,7 +152,7 @@ func (m *DockerLogManager) StopContainer(containerID string) {
 // HandleEvent listens to lifecycle events from EventWatcher and starts/stops followers.
 func (m *DockerLogManager) HandleEvent(ev ContainerEvent) {
 	switch ev.Action {
-	case "start":
+	case "start", "restart":
 		name := ev.ContainerName
 		if name == "" {
 			if len(ev.ContainerID) >= 12 {

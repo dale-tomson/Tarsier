@@ -392,10 +392,10 @@ func (s *Server) queryContainerDetail(ctx context.Context, name string, days int
 	evRows, err := s.configDB.RO.QueryContext(ctx, `
 		SELECT id, ts, type, detail
 		FROM container_event
-		WHERE container_id = ?
+		WHERE container_id IN (SELECT id FROM container WHERE name = ?) OR container_id = ?
 		ORDER BY ts DESC
 		LIMIT 50;
-	`, id)
+	`, cName, id)
 	if err == nil {
 		defer evRows.Close()
 		for evRows.Next() {
