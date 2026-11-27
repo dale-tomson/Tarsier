@@ -446,6 +446,79 @@ func TestValidateConfig(t *testing.T) {
 			},
 			expectErr: "docker.exclude invalid",
 		},
+		{
+			name: "invalid logs.default_timezone",
+			modify: func(c *Config) {
+				c.Logs.DefaultTimezone = "Invalid/TZ"
+			},
+			expectErr: "logs.default_timezone invalid",
+		},
+		{
+			name: "logs.detect.max_scan_bytes <= 0",
+			modify: func(c *Config) {
+				c.Logs.Detect.MaxScanBytes = 0
+			},
+			expectErr: "logs.detect.max_scan_bytes must be > 0",
+		},
+		{
+			name: "empty docker.socket when enabled",
+			modify: func(c *Config) {
+				c.Docker.Socket = ""
+			},
+			expectErr: "docker.socket must not be empty",
+		},
+		{
+			name: "out of bounds email smtp_port",
+			modify: func(c *Config) {
+				c.Notifiers.Email.Enabled = true
+				c.Notifiers.Email.SMTPHost = "smtp.example.com"
+				c.Notifiers.Email.From = "a@b.com"
+				c.Notifiers.Email.To = []string{"c@d.com"}
+				c.Notifiers.Email.SMTPPort = 0
+			},
+			expectErr: "notifiers.email.smtp_port must be between",
+		},
+		{
+			name: "empty email to recipients",
+			modify: func(c *Config) {
+				c.Notifiers.Email.Enabled = true
+				c.Notifiers.Email.SMTPHost = "smtp.example.com"
+				c.Notifiers.Email.From = "a@b.com"
+				c.Notifiers.Email.To = []string{}
+				c.Notifiers.Email.SMTPPort = 587
+			},
+			expectErr: "notifiers.email.to must contain at least one recipient",
+		},
+		{
+			name: "invalid discord webhook URL",
+			modify: func(c *Config) {
+				c.Notifiers.Discord.Enabled = true
+				c.Notifiers.Discord.WebhookURL = "ftp://invalid"
+			},
+			expectErr: "notifiers.discord.webhook_url must be a valid HTTP(S) URL",
+		},
+		{
+			name: "invalid heartbeat URL",
+			modify: func(c *Config) {
+				c.Heartbeat.Enabled = true
+				c.Heartbeat.URL = "invalid-url"
+			},
+			expectErr: "heartbeat.url must be a valid HTTP(S) URL",
+		},
+		{
+			name: "cleanup report min_attempts < 1",
+			modify: func(c *Config) {
+				c.Cleanup.Report.MinAttempts = 0
+			},
+			expectErr: "cleanup.report.min_attempts must be >= 1",
+		},
+		{
+			name: "cleanup batch_size <= 0",
+			modify: func(c *Config) {
+				c.Cleanup.BatchSize = 0
+			},
+			expectErr: "cleanup.batch_size must be > 0",
+		},
 	}
 
 	for _, tc := range tests {
@@ -673,78 +746,4 @@ func TestValidateCronFieldCases(t *testing.T) {
 			t.Errorf("unexpected error for field %q [%d-%d]: %v", tc.field, tc.min, tc.max, err)
 		}
 	}
-}
-
-func TestValidateAdditionalBranches(t *testing.T) {
-	c := NewDefaultConfig()
-	c.ApplyDefaults()
-
-	// logs.default_timezone invalid
-	c.Logs.DefaultTimezone = "Invalid/TZ"
-	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "logs.default_timezone invalid") {
-		t.Errorf("expected logs.default_timezone error, got %v", err)
-	}
-	c.Logs.DefaultTimezone = ""
-
-	// logs.detect.max_scan_bytes <= 0
-	c.Logs.Detect.MaxScanBytes = 0
-	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "logs.detect.max_scan_bytes must be > 0") {
-		t.Errorf("expected max_scan_bytes error, got %v", err)
-	}
-	c.Logs.Detect.MaxScanBytes = 4096
-
-	// docker empty socket when enabled
-	c.Docker.Socket = ""
-	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "docker.socket must not be empty") {
-		t.Errorf("expected docker.socket error, got %v", err)
-	}
-	c.Docker.Socket = "/var/run/docker.sock"
-
-	// email port <= 0
-	c.Notifiers.Email.Enabled = true
-	c.Notifiers.Email.SMTPHost = "smtp.example.com"
-	c.Notifiers.Email.From = "a@b.com"
-	c.Notifiers.Email.To = []string{"c@d.com"}
-	c.Notifiers.Email.SMTPPort = 0
-	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "notifiers.email.smtp_port must be between") {
-		t.Errorf("expected smtp_port error, got %v", err)
-	}
-
-	// email empty to
-	c.Notifiers.Email.SMTPPort = 587
-	c.Notifiers.Email.To = []string{}
-	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "notifiers.email.to must contain at least one recipient") {
-		t.Errorf("expected email.to error, got %v", err)
-	}
-	c.Notifiers.Email.Enabled = false
-
-	// discord invalid url
-	c.Notifiers.Discord.Enabled = true
-	c.Notifiers.Discord.WebhookURL = "ftp://invalid"
-	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "notifiers.discord.webhook_url must be a valid HTTP(S) URL") {
-		t.Errorf("expected discord webhook url error, got %v", err)
-	}
-	c.Notifiers.Discord.Enabled = false
-
-	// heartbeat invalid url
-	c.Heartbeat.Enabled = true
-	c.Heartbeat.URL = "invalid-url"
-	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "heartbeat.url must be a valid HTTP(S) URL") {
-		t.Errorf("expected heartbeat url error, got %v", err)
-	}
-	c.Heartbeat.Enabled = false
-
-	// cleanup report min_attempts < 1
-	c.Cleanup.Report.MinAttempts = 0
-	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "cleanup.report.min_attempts must be >= 1") {
-		t.Errorf("expected min_attempts error, got %v", err)
-	}
-	c.Cleanup.Report.MinAttempts = 2
-
-	// cleanup batch_size <= 0
-	c.Cleanup.BatchSize = 0
-	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "cleanup.batch_size must be > 0") {
-		t.Errorf("expected batch_size error, got %v", err)
-	}
-	c.Cleanup.BatchSize = 5000
 }
