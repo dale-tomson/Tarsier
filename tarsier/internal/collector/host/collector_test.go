@@ -12,23 +12,55 @@ import (
 	"github.com/dale-tomson/Tarsier/internal/model"
 )
 
-func TestParseCPU_DeltaCalculation(t *testing.T) {
-	// Snapshot 1: total = 1000 + 200 + 300 + 3500 = 5000; idle = 3500
-	snap1 := cpuTicks{total: 5000, idleAll: 3500}
-
-	// Snapshot 2: user +250, system +50, idle +700 => total +1000, idle +700
-	// Utilization = (1000 - 700) / 1000 * 100 = 30.0%
-	snap2 := cpuTicks{total: 6000, idleAll: 4200}
-
-	pct := computeCPUPercentage(snap1, snap2)
-	if math.Abs(pct-30.0) > 0.01 {
-		t.Fatalf("expected 30.0%% CPU, got %f", pct)
+func TestComputeCPUPercentage_Table(t *testing.T) {
+	tests := []struct {
+		name string
+		prev cpuTicks
+		curr cpuTicks
+		want float64
+	}{
+		{
+			name: "normal tick delta 30 percent",
+			prev: cpuTicks{total: 5000, idleAll: 3500},
+			curr: cpuTicks{total: 6000, idleAll: 4200},
+			want: 30.0,
+		},
+		{
+			name: "zero tick delta returns zero without NaN",
+			prev: cpuTicks{total: 6000, idleAll: 4200},
+			curr: cpuTicks{total: 6000, idleAll: 4200},
+			want: 0.0,
+		},
+		{
+			name: "100 percent utilization",
+			prev: cpuTicks{total: 5000, idleAll: 3500},
+			curr: cpuTicks{total: 6000, idleAll: 3500},
+			want: 100.0,
+		},
+		{
+			name: "idle equals total delta",
+			prev: cpuTicks{total: 5000, idleAll: 3500},
+			curr: cpuTicks{total: 6000, idleAll: 4500},
+			want: 0.0,
+		},
+		{
+			name: "negative or zero total ticks delta",
+			prev: cpuTicks{total: 6000, idleAll: 4200},
+			curr: cpuTicks{total: 5000, idleAll: 4000},
+			want: 0.0,
+		},
 	}
 
-	// Zero-delta snapshot must return 0.0 without NaN
-	zeroPct := computeCPUPercentage(snap2, snap2)
-	if zeroPct != 0.0 || math.IsNaN(zeroPct) {
-		t.Fatalf("expected 0.0 CPU on zero delta, got %f", zeroPct)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pct := computeCPUPercentage(tc.prev, tc.curr)
+			if math.IsNaN(pct) {
+				t.Fatalf("computeCPUPercentage returned NaN")
+			}
+			if math.Abs(pct-tc.want) > 0.01 {
+				t.Fatalf("expected %.2f%% CPU, got %f", tc.want, pct)
+			}
+		})
 	}
 }
 
@@ -94,13 +126,17 @@ SwapFree:        1048576 kB
 }
 
 func TestDiscoverMounts_FilteringAndDeduplication(t *testing.T) {
-	tmpDir := t.TempDir()
-	proc1Dir := filepath.Join(tmpDir, "1")
-	if err := os.MkdirAll(proc1Dir, 0755); err != nil {
-		t.Fatalf("mkdir proc/1: %v", err)
-	}
-
-	mountinfoContent := `36 35 98:0 / / rw,noatime master:1 - ext4 /dev/root rw,errors=remount-ro
+	tests := []struct {
+		name            string
+		mountinfo       string
+		configuredDisks []string
+		excludeFS       []string
+		wantPresent     []string
+		wantAbsent      []string
+	}{
+		{
+			name: "standard host with pseudo-fs and bind mount deduplication",
+			mountinfo: `36 35 98:0 / / rw,noatime master:1 - ext4 /dev/root rw,errors=remount-ro
 37 36 98:0 / /var/lib/docker/bind rw master:1 - ext4 /dev/root rw
 38 36 0:25 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw
 39 36 0:26 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw
@@ -108,111 +144,170 @@ func TestDiscoverMounts_FilteringAndDeduplication(t *testing.T) {
 41 36 0:28 / /dev/shm rw,nosuid,nodev - tmpfs tmpfs rw
 42 36 259:1 / /mnt/data rw,relatime - xfs /dev/nvme0n1p1 rw
 43 36 0:50 / /var/lib/docker/overlay2/abc/merged rw - overlay overlay rw
-`
-	if err := os.WriteFile(filepath.Join(proc1Dir, "mountinfo"), []byte(mountinfoContent), 0644); err != nil {
-		t.Fatalf("write mountinfo: %v", err)
-	}
-
-	mounts, err := discoverMounts(tmpDir, nil, nil)
-	if err != nil {
-		t.Fatalf("discoverMounts failed: %v", err)
-	}
-
-	mountMap := make(map[string]bool)
-	for _, m := range mounts {
-		mountMap[m] = true
-	}
-
-	// Pseudo filesystems (proc, sys, devtmpfs, tmpfs, overlay) must be excluded
-	if mountMap["/proc"] || mountMap["/sys"] || mountMap["/dev"] || mountMap["/dev/shm"] || mountMap["/var/lib/docker/overlay2/abc/merged"] {
-		t.Fatalf("found pseudo-fs in discovered mounts: %v", mounts)
-	}
-
-	// ext4 root device (98:0) had two mounts: "/" and "/var/lib/docker/bind" -> must deduplicate to "/"
-	if !mountMap["/"] {
-		t.Errorf("expected '/' mount point")
-	}
-	if mountMap["/var/lib/docker/bind"] {
-		t.Errorf("duplicate bind mount '/var/lib/docker/bind' was not deduplicated")
-	}
-
-	// xfs (/mnt/data) should be present
-	if !mountMap["/mnt/data"] {
-		t.Errorf("expected '/mnt/data' mount point")
-	}
-
-	// Verify container overlay root mount '/' is never excluded
-	containerMountinfo := `50 49 0:60 / / rw,relatime - overlay overlay rw,lowerdir=/var/lib/docker
+`,
+			wantPresent: []string{"/", "/mnt/data"},
+			wantAbsent:  []string{"/proc", "/sys", "/dev", "/dev/shm", "/var/lib/docker/overlay2/abc/merged", "/var/lib/docker/bind"},
+		},
+		{
+			name: "container overlay root preservation",
+			mountinfo: `50 49 0:60 / / rw,relatime - overlay overlay rw,lowerdir=/var/lib/docker
 51 50 98:0 / /data rw - ext4 /dev/sda1 rw
-`
-	if err := os.WriteFile(filepath.Join(proc1Dir, "mountinfo"), []byte(containerMountinfo), 0644); err != nil {
-		t.Fatalf("write container mountinfo: %v", err)
+`,
+			wantPresent: []string{"/", "/data"},
+		},
+		{
+			name: "include and exclude glob filtering",
+			mountinfo: `36 35 98:0 / / rw,noatime master:1 - ext4 /dev/root rw
+42 36 259:1 / /mnt/data rw,relatime - xfs /dev/nvme0n1p1 rw
+44 36 0:61 / /mnt/nfs rw,relatime - nfs4 10.0.0.1:/share rw
+45 36 8:16 / /data rw,relatime - ext4 /dev/sdb1 rw
+`,
+			configuredDisks: []string{"/", "/data"},
+			excludeFS:       []string{"xfs", " nfs4 "},
+			wantPresent:     []string{"/", "/data"},
+			wantAbsent:      []string{"/mnt/data", "/mnt/nfs"},
+		},
 	}
-	cMounts, err := discoverMounts(tmpDir, nil, nil)
-	if err != nil {
-		t.Fatalf("discoverMounts failed: %v", err)
-	}
-	hasRoot := false
-	for _, m := range cMounts {
-		if m == "/" {
-			hasRoot = true
-		}
-	}
-	if !hasRoot {
-		t.Errorf("expected container overlay root '/' to be preserved, got %v", cMounts)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			proc1Dir := filepath.Join(tmpDir, "1")
+			if err := os.MkdirAll(proc1Dir, 0755); err != nil {
+				t.Fatalf("mkdir proc/1: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(proc1Dir, "mountinfo"), []byte(tc.mountinfo), 0644); err != nil {
+				t.Fatalf("write mountinfo: %v", err)
+			}
+
+			mounts, err := discoverMounts(tmpDir, nil, tc.excludeFS)
+			if err != nil {
+				t.Fatalf("discoverMounts failed: %v", err)
+			}
+
+			mountMap := make(map[string]bool, len(mounts))
+			for _, m := range mounts {
+				mountMap[m] = true
+			}
+
+			for _, want := range tc.wantPresent {
+				if !mountMap[want] {
+					t.Errorf("expected mount point %q in %v", want, mounts)
+				}
+			}
+			for _, absent := range tc.wantAbsent {
+				if mountMap[absent] {
+					t.Errorf("unexpected mount point %q in %v", absent, mounts)
+				}
+			}
+
+			if len(tc.configuredDisks) > 0 {
+				included, err := discoverMounts(tmpDir, tc.configuredDisks, tc.excludeFS)
+				if err != nil {
+					t.Fatalf("discoverMounts with configuredDisks failed: %v", err)
+				}
+				if len(included) != len(tc.configuredDisks) {
+					t.Fatalf("expected %d configured mounts, got %v", len(tc.configuredDisks), included)
+				}
+				for i, want := range tc.configuredDisks {
+					if included[i] != want {
+						t.Errorf("configured mount[%d]: expected %q, got %q", i, want, included[i])
+					}
+				}
+			}
+		})
 	}
 }
 
 func TestParseNetwork_ExcludesVirtualInterfaces(t *testing.T) {
-	tmpDir := t.TempDir()
-	netDir := filepath.Join(tmpDir, "net")
-	if err := os.MkdirAll(netDir, 0755); err != nil {
-		t.Fatalf("mkdir net: %v", err)
-	}
-
-	netdev1 := `Inter-|   Receive                                                |  Transmit
+	tests := []struct {
+		name        string
+		netdev1     string
+		netdev2     string
+		hasSecond   bool
+		wantRx1     uint64
+		wantTx1     uint64
+		wantDeltaRx uint64
+		wantDeltaTx uint64
+	}{
+		{
+			name: "excludes lo, veth, and bridge interfaces",
+			netdev1: `Inter-|   Receive                                                |  Transmit
  face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
     lo: 1000000    1000    0    0    0     0          0         0  1000000    1000    0    0    0     0       0          0
   eth0: 5000000    5000    0    0    0     0          0         0  2000000    2000    0    0    0     0       0          0
 veth12:  500000     500    0    0    0     0          0         0   500000     500    0    0    0     0       0          0
 docker0: 800000     800    0    0    0     0          0         0   800000     800    0    0    0     0       0          0
-`
-	if err := os.WriteFile(filepath.Join(netDir, "dev"), []byte(netdev1), 0644); err != nil {
-		t.Fatalf("write net/dev: %v", err)
-	}
-
-	snap1, err := readNetIO(tmpDir)
-	if err != nil {
-		t.Fatalf("readNetIO failed: %v", err)
-	}
-
-	// Only eth0 should be counted: rx = 5,000,000, tx = 2,000,000
-	if snap1.rxBytes != 5000000 || snap1.txBytes != 2000000 {
-		t.Fatalf("expected eth0-only counters (rx: 5000000, tx: 2000000), got rx: %d, tx: %d", snap1.rxBytes, snap1.txBytes)
-	}
-
-	netdev2 := `Inter-|   Receive                                                |  Transmit
+br-123:  400000     400    0    0    0     0          0         0   400000     400    0    0    0     0       0          0
+`,
+			netdev2: `Inter-|   Receive                                                |  Transmit
  face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
     lo: 2000000    2000    0    0    0     0          0         0  2000000    2000    0    0    0     0       0          0
   eth0: 8000000    8000    0    0    0     0          0         0  4000000    4000    0    0    0     0       0          0
 veth12: 1500000    1500    0    0    0     0          0         0  1500000    1500    0    0    0     0       0          0
 docker0:1800000    1800    0    0    0     0          0         0  1800000    1800    0    0    0     0       0          0
-`
-	if err := os.WriteFile(filepath.Join(netDir, "dev"), []byte(netdev2), 0644); err != nil {
-		t.Fatalf("write net/dev 2: %v", err)
+br-123: 1400000    1400    0    0    0     0          0         0  1400000    1400    0    0    0     0       0          0
+`,
+			hasSecond:   true,
+			wantRx1:     5000000,
+			wantTx1:     2000000,
+			wantDeltaRx: 3000000,
+			wantDeltaTx: 2000000,
+		},
+		{
+			name: "handles empty or malformed net dev file",
+			netdev1: `Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+malformed_no_colon
+short: 100 1 0
+badnum: notanumber 0 0 0 0 0 0 0 badtx 0 0 0 0 0 0 0
+`,
+			netdev2:     "",
+			hasSecond:   true,
+			wantRx1:     0,
+			wantTx1:     0,
+			wantDeltaRx: 0,
+			wantDeltaTx: 0,
+		},
 	}
 
-	snap2, err := readNetIO(tmpDir)
-	if err != nil {
-		t.Fatalf("readNetIO 2 failed: %v", err)
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			netDir := filepath.Join(tmpDir, "net")
+			if err := os.MkdirAll(netDir, 0755); err != nil {
+				t.Fatalf("mkdir net: %v", err)
+			}
 
-	// delta rx: 3,000,000 over 1 sec = 3,000,000 bps
-	// delta tx: 2,000,000 over 1 sec = 2,000,000 bps
-	deltaRx := snap2.rxBytes - snap1.rxBytes
-	deltaTx := snap2.txBytes - snap1.txBytes
-	if deltaRx != 3000000 || deltaTx != 2000000 {
-		t.Fatalf("expected deltaRx=3000000, deltaTx=2000000, got %d, %d", deltaRx, deltaTx)
+			if err := os.WriteFile(filepath.Join(netDir, "dev"), []byte(tc.netdev1), 0644); err != nil {
+				t.Fatalf("write net/dev: %v", err)
+			}
+
+			snap1, err := readNetIO(tmpDir)
+			if err != nil {
+				t.Fatalf("readNetIO failed: %v", err)
+			}
+			if snap1.rxBytes != tc.wantRx1 || snap1.txBytes != tc.wantTx1 {
+				t.Fatalf("expected counters (rx: %d, tx: %d), got rx: %d, tx: %d", tc.wantRx1, tc.wantTx1, snap1.rxBytes, snap1.txBytes)
+			}
+
+			if tc.hasSecond {
+				if err := os.WriteFile(filepath.Join(netDir, "dev"), []byte(tc.netdev2), 0644); err != nil {
+					t.Fatalf("write net/dev 2: %v", err)
+				}
+
+				snap2, err := readNetIO(tmpDir)
+				if err != nil {
+					t.Fatalf("readNetIO 2 failed: %v", err)
+				}
+
+				deltaRx := snap2.rxBytes - snap1.rxBytes
+				deltaTx := snap2.txBytes - snap1.txBytes
+				if deltaRx != tc.wantDeltaRx || deltaTx != tc.wantDeltaTx {
+					t.Fatalf("expected deltaRx=%d, deltaTx=%d, got %d, %d", tc.wantDeltaRx, tc.wantDeltaTx, deltaRx, deltaTx)
+				}
+			}
+		})
 	}
 }
 
