@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -32,7 +33,7 @@ func setupTestStore(t *testing.T) *db.Store {
 
 func setupTestAuthenticator(t *testing.T, username, password string) (*auth.Authenticator, []byte) {
 	t.Helper()
-	hashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	if err != nil {
 		t.Fatalf("failed to generate bcrypt hash: %v", err)
 	}
@@ -215,45 +216,79 @@ func TestSession_TamperingAndExpiry(t *testing.T) {
 		t.Fatalf("create session failed: %v", err)
 	}
 
-	// Validate authentic cookie succeeds
-	sid, err := sessionStore.ValidateCookie(context.Background(), cookie.Value)
-	if err != nil || sid == "" {
-		t.Fatalf("expected cookie to validate successfully, got err: %v", err)
-	}
-
-	// Case A: Tamper signature byte
-	tamperedSig := cookie.Value[:len(cookie.Value)-1] + "x"
-	_, err = sessionStore.ValidateCookie(context.Background(), tamperedSig)
-	if err == nil {
-		t.Error("expected error for tampered signature, got nil")
-	}
-
-	// Case B: Tamper expiry timestamp
 	parts := strings.Split(cookie.Value, ".")
-	tamperedExp := fmt.Sprintf("%s.%d.%s", parts[0], time.Now().Add(10*time.Hour).Unix(), parts[2])
-	_, err = sessionStore.ValidateCookie(context.Background(), tamperedExp)
-	if err == nil {
-		t.Error("expected error for tampered expiry timestamp, got nil")
+	if len(parts) != 3 {
+		t.Fatalf("unexpected cookie format: %q", cookie.Value)
+	}
+	expectedSID := parts[0]
+
+	tamperedSig := cookie.Value[:len(cookie.Value)-1] + "x"
+	if cookie.Value[len(cookie.Value)-1] == 'x' {
+		tamperedSig = cookie.Value[:len(cookie.Value)-1] + "y"
+	}
+	tamperedExp := fmt.Sprintf("%s.%d.%s", parts[0], fakeNow.Add(10*time.Hour).Unix(), parts[2])
+
+	tests := []struct {
+		name        string
+		cookieValue string
+		advance     time.Duration
+		wantErr     error
+	}{
+		{
+			name:        "valid cookie",
+			cookieValue: cookie.Value,
+			wantErr:     nil,
+		},
+		{
+			name:        "tampered signature byte",
+			cookieValue: tamperedSig,
+			wantErr:     auth.ErrInvalidCookie,
+		},
+		{
+			name:        "tampered expiry timestamp",
+			cookieValue: tamperedExp,
+			wantErr:     auth.ErrInvalidCookie,
+		},
+		{
+			name:        "expired past TTL",
+			cookieValue: cookie.Value,
+			advance:     31 * time.Minute,
+			wantErr:     auth.ErrSessionExpired,
+		},
 	}
 
-	// Case C: Advance clock past 30-minute TTL -> rejected as expired
-	currentClockMu.Lock()
-	currentClock = currentClock.Add(31 * time.Minute)
-	currentClockMu.Unlock()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.advance > 0 {
+				currentClockMu.Lock()
+				currentClock = currentClock.Add(tc.advance)
+				currentClockMu.Unlock()
+			}
 
-	_, err = sessionStore.ValidateCookie(context.Background(), cookie.Value)
-	if err == nil {
-		t.Error("expected error after advancing past session TTL, got nil")
+			sid, err := sessionStore.ValidateCookie(context.Background(), tc.cookieValue)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Errorf("expected error %v, got %v", tc.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected cookie to validate successfully, got err: %v", err)
+			}
+			if sid != expectedSID {
+				t.Errorf("expected session ID %q, got %q", expectedSID, sid)
+			}
+		})
 	}
 
-	// Case D: PruneExpiredSessions clears the expired row from config.db
+	// PruneExpiredSessions clears the expired row from config.db
 	if err := sessionStore.PruneExpiredSessions(context.Background()); err != nil {
 		t.Fatalf("prune expired sessions failed: %v", err)
 	}
 
 	// Verify row no longer exists in DB
 	var count int
-	row := store.Config.QueryRO().QueryRowContext(context.Background(), "SELECT COUNT(*) FROM session WHERE id = ?;", sid)
+	row := store.Config.QueryRO().QueryRowContext(context.Background(), "SELECT COUNT(*) FROM session WHERE id = ?;", expectedSID)
 	if err := row.Scan(&count); err != nil {
 		t.Fatalf("query session count failed: %v", err)
 	}
@@ -403,10 +438,12 @@ func TestRequireAuth_Middleware(t *testing.T) {
 	store := setupTestStore(t)
 	authenticator, secret := setupTestAuthenticator(t, "admin", "secret123")
 
+	fakeNow := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
 	sessionStore, err := auth.NewSessionStore(auth.SessionConfig{
 		ConfigDB: store.Config,
 		Secret:   secret,
 		TTL:      1 * time.Hour,
+		Clock:    func() time.Time { return fakeNow },
 	})
 	if err != nil {
 		t.Fatalf("failed to create session store: %v", err)
@@ -423,29 +460,84 @@ func TestRequireAuth_Middleware(t *testing.T) {
 		auth.WriteJSON(w, http.StatusOK, map[string]string{"protected": "ok"})
 	}))
 
-	// Request without cookie -> 401
-	req1 := httptest.NewRequest(http.MethodGet, "/protected", nil)
-	rec1 := httptest.NewRecorder()
-	protectedHandler.ServeHTTP(rec1, req1)
-
-	if rec1.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 without cookie, got %d", rec1.Code)
-	}
-
-	// Create valid cookie
-	cookie, err := sessionStore.CreateSession(context.Background(), false)
+	validCookie, err := sessionStore.CreateSession(context.Background(), false)
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
 
-	// Request with valid cookie -> 200
-	req2 := httptest.NewRequest(http.MethodGet, "/protected", nil)
-	req2.AddCookie(cookie)
-	rec2 := httptest.NewRecorder()
-	protectedHandler.ServeHTTP(rec2, req2)
+	tamperedValue := validCookie.Value[:len(validCookie.Value)-1] + "x"
+	if validCookie.Value[len(validCookie.Value)-1] == 'x' {
+		tamperedValue = validCookie.Value[:len(validCookie.Value)-1] + "y"
+	}
 
-	if rec2.Code != http.StatusOK {
-		t.Errorf("expected 200 with cookie, got %d", rec2.Code)
+	expiredValue := sessionStore.SignCookie("expired-session-id", fakeNow.Add(-1*time.Minute).Unix())
+
+	tests := []struct {
+		name       string
+		cookie     *http.Cookie
+		wantStatus int
+		wantBody   bool
+	}{
+		{
+			name:       "missing cookie",
+			cookie:     nil,
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name: "invalid cookie format",
+			cookie: &http.Cookie{
+				Name:  auth.SessionCookieName,
+				Value: "bad.format",
+			},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name: "tampered cookie signature",
+			cookie: &http.Cookie{
+				Name:  auth.SessionCookieName,
+				Value: tamperedValue,
+			},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name: "expired session",
+			cookie: &http.Cookie{
+				Name:  auth.SessionCookieName,
+				Value: expiredValue,
+			},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "valid session",
+			cookie:     validCookie,
+			wantStatus: http.StatusOK,
+			wantBody:   true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+			if tc.cookie != nil {
+				req.AddCookie(tc.cookie)
+			}
+			rec := httptest.NewRecorder()
+			protectedHandler.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Errorf("expected status %d, got %d", tc.wantStatus, rec.Code)
+			}
+
+			if tc.wantBody {
+				var body map[string]string
+				if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+					t.Fatalf("failed to decode response body: %v", err)
+				}
+				if body["protected"] != "ok" {
+					t.Errorf("expected protected=ok in body, got %+v", body)
+				}
+			}
+		})
 	}
 }
 
