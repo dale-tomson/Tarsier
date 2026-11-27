@@ -83,7 +83,8 @@ func SyncContainers(ctx context.Context, configDB *db.Handle, containers []Conta
 		// 2. For each container in the current sync list, supersede older records with the same name if active
 		stmtSupersede, err := tx.PrepareContext(ctx, `
 			UPDATE container SET last_status = 'exited'
-			WHERE name = ? AND id != ? AND last_status IN ('running', 'restarting');
+			WHERE (name = ? OR name = ('/' || ?) OR TRIM(name, '/') = ?)
+			  AND id != ? AND last_status IN ('running', 'restarting');
 		`)
 		if err != nil {
 			return fmt.Errorf("prepare container supersede: %w", err)
@@ -91,9 +92,11 @@ func SyncContainers(ctx context.Context, configDB *db.Handle, containers []Conta
 		defer stmtSupersede.Close()
 
 		for _, c := range containers {
+			c.Name = strings.TrimPrefix(strings.TrimSpace(c.Name), "/")
+			c.Image = strings.TrimPrefix(strings.TrimSpace(c.Image), "/")
 			state := strings.ToLower(strings.TrimSpace(c.State))
 			if (state == "running" || state == "restarting") && c.Name != "" {
-				if _, err := stmtSupersede.ExecContext(ctx, c.Name, c.ID); err != nil {
+				if _, err := stmtSupersede.ExecContext(ctx, c.Name, c.Name, c.Name, c.ID); err != nil {
 					return fmt.Errorf("exec container supersede (%s): %w", c.Name, err)
 				}
 			}

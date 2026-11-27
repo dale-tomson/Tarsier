@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -155,13 +156,21 @@ func (s *Server) queryContainersList(ctx context.Context) (*ContainersListRespon
 	nowUnix := s.clock.Now().Unix()
 	cutoffTS := nowUnix - s.containersExitedHorizonSec()
 
-	// 1. Fetch discovered containers from config.db, deduplicated by name (prioritizing running state and latest last_seen)
+	// 1. Fetch discovered containers from config.db, deduplicated by name (prioritizing running/restarting state and latest timestamps)
 	rows, err := s.configDB.RO.QueryContext(ctx, `
 		WITH ranked AS (
 			SELECT id, name, image, first_seen, last_seen, last_status, restart_count,
 			       ROW_NUMBER() OVER (
-			           PARTITION BY name 
-			           ORDER BY CASE WHEN last_status = 'running' THEN 1 ELSE 2 END, last_seen DESC
+			           PARTITION BY TRIM(name, '/')
+			           ORDER BY
+			               CASE
+			                   WHEN last_status = 'running' THEN 1
+			                   WHEN last_status = 'restarting' THEN 2
+			                   ELSE 3
+			               END,
+			               last_seen DESC,
+			               first_seen DESC,
+			               id DESC
 			       ) as rn
 			FROM container
 			WHERE NOT (last_status IN ('exited', 'dead', 'destroyed') AND last_seen < ?)
@@ -169,7 +178,7 @@ func (s *Server) queryContainersList(ctx context.Context) (*ContainersListRespon
 		SELECT id, name, image, first_seen, last_seen, last_status, restart_count
 		FROM ranked
 		WHERE rn = 1
-		ORDER BY name ASC;
+		ORDER BY TRIM(name, '/') ASC, name ASC;
 	`, cutoffTS)
 	if err != nil {
 		return nil, fmt.Errorf("query containers: %w", err)
@@ -213,11 +222,13 @@ func (s *Server) queryContainersList(ctx context.Context) (*ContainersListRespon
 	}
 
 	for _, c := range rawContainers {
-		entity := "container:" + c.name
+		cName := strings.TrimPrefix(strings.TrimSpace(c.name), "/")
+		cImage := strings.TrimPrefix(strings.TrimSpace(c.image), "/")
+		entity := "container:" + cName
 		item := ContainerListItem{
 			ID:           c.id,
-			Name:         c.name,
-			Image:        c.image,
+			Name:         cName,
+			Image:        cImage,
 			State:        c.lastStatus,
 			Health:       computeContainerHealth(c.lastStatus, c.restartCount),
 			RestartCount: c.restartCount,
@@ -275,7 +286,11 @@ func (s *Server) queryContainersList(ctx context.Context) (*ContainersListRespon
 }
 
 func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimSpace(chi.URLParam(r, "name"))
+	rawName := chi.URLParam(r, "name")
+	if unescaped, err := url.PathUnescape(rawName); err == nil {
+		rawName = unescaped
+	}
+	name := strings.TrimPrefix(strings.TrimSpace(rawName), "/")
 	if name == "" {
 		auth.WriteJSONError(w, http.StatusBadRequest, "invalid_param", "container name is required")
 		return
@@ -316,6 +331,14 @@ func (s *Server) queryContainerDetail(ctx context.Context, name string, days int
 		return nil, fmt.Errorf("container not found")
 	}
 
+	name = strings.TrimPrefix(strings.TrimSpace(name), "/")
+	if name == "" {
+		return nil, fmt.Errorf("container not found")
+	}
+
+	nowUnix := s.clock.Now().Unix()
+	cutoffTS := nowUnix - s.containersExitedHorizonSec()
+
 	var (
 		id           string
 		cName        string
@@ -329,10 +352,19 @@ func (s *Server) queryContainerDetail(ctx context.Context, name string, days int
 	err := s.configDB.RO.QueryRowContext(ctx, `
 		SELECT id, name, image, first_seen, last_seen, last_status, restart_count
 		FROM container
-		WHERE name = ?
-		ORDER BY last_seen DESC
+		WHERE (name = ? OR name = ('/' || ?) OR TRIM(name, '/') = ?)
+		  AND NOT (last_status IN ('exited', 'dead', 'destroyed') AND last_seen < ?)
+		ORDER BY
+		  CASE
+		    WHEN last_status = 'running' THEN 1
+		    WHEN last_status = 'restarting' THEN 2
+		    ELSE 3
+		  END,
+		  last_seen DESC,
+		  first_seen DESC,
+		  id DESC
 		LIMIT 1;
-	`, name).Scan(&id, &cName, &image, &firstSeen, &lastSeen, &lastStatus, &restartCount)
+	`, name, name, name, cutoffTS).Scan(&id, &cName, &image, &firstSeen, &lastSeen, &lastStatus, &restartCount)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("container not found")
@@ -341,16 +373,13 @@ func (s *Server) queryContainerDetail(ctx context.Context, name string, days int
 		return nil, fmt.Errorf("query container detail: %w", err)
 	}
 
-	nowUnix := s.clock.Now().Unix()
-	cutoffTS := nowUnix - s.containersExitedHorizonSec()
-	if (lastStatus == "exited" || lastStatus == "dead" || lastStatus == "destroyed") && lastSeen < cutoffTS {
-		return nil, fmt.Errorf("container not found")
-	}
+	normName := strings.TrimPrefix(strings.TrimSpace(cName), "/")
+	normImage := strings.TrimPrefix(strings.TrimSpace(image), "/")
 
 	item := ContainerListItem{
 		ID:           id,
-		Name:         cName,
-		Image:        image,
+		Name:         normName,
+		Image:        normImage,
 		State:        lastStatus,
 		Health:       computeContainerHealth(lastStatus, restartCount),
 		RestartCount: restartCount,
@@ -362,7 +391,7 @@ func (s *Server) queryContainerDetail(ctx context.Context, name string, days int
 		item.UptimeS = nowUnix - firstSeen
 	}
 
-	entity := "container:" + name
+	entity := "container:" + normName
 	if s.hotCache != nil {
 		latest := s.hotCache.GetEntityLatest(entity)
 		if latest != nil {
@@ -410,10 +439,10 @@ func (s *Server) queryContainerDetail(ctx context.Context, name string, days int
 	evRows, err := s.configDB.RO.QueryContext(ctx, `
 		SELECT id, ts, type, detail
 		FROM container_event
-		WHERE container_id IN (SELECT id FROM container WHERE name = ?) OR container_id = ?
+		WHERE container_id IN (SELECT id FROM container WHERE name = ? OR name = ('/' || ?) OR TRIM(name, '/') = ?) OR container_id = ?
 		ORDER BY ts DESC
 		LIMIT 50;
-	`, cName, id)
+	`, normName, normName, normName, id)
 	if err == nil {
 		defer evRows.Close()
 		for evRows.Next() {

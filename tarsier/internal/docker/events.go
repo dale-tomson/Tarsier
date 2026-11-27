@@ -261,7 +261,7 @@ func (w *EventWatcher) processFrame(frame dockerEventFrame) (ContainerEvent, boo
 		return ContainerEvent{}, false
 	}
 
-	name := strings.TrimPrefix(frame.Actor.Attributes["name"], "/")
+	name := strings.TrimPrefix(strings.TrimSpace(frame.Actor.Attributes["name"]), "/")
 	if name == "" {
 		name = frame.Actor.ID
 		if len(name) > 12 {
@@ -304,7 +304,7 @@ func (w *EventWatcher) processFrame(frame dockerEventFrame) (ContainerEvent, boo
 	ev := ContainerEvent{
 		ContainerID:   frame.Actor.ID,
 		ContainerName: name,
-		Image:         frame.Actor.Attributes["image"],
+		Image:         strings.TrimPrefix(strings.TrimSpace(frame.Actor.Attributes["image"]), "/"),
 		Action:        action,
 		TS:            frame.Time,
 		ExitCode:      exitCode,
@@ -315,6 +315,8 @@ func (w *EventWatcher) processFrame(frame dockerEventFrame) (ContainerEvent, boo
 }
 
 func (w *EventWatcher) persistAndDispatch(ctx context.Context, ev ContainerEvent) error {
+	ev.ContainerName = strings.TrimPrefix(strings.TrimSpace(ev.ContainerName), "/")
+	ev.Image = strings.TrimPrefix(strings.TrimSpace(ev.Image), "/")
 	var (
 		inspect    ContainerInspect
 		inspectErr = errors.New("not inspected")

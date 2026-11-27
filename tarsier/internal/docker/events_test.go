@@ -608,3 +608,28 @@ func TestEventWatcher_LargeJSONFrameStreaming(t *testing.T) {
 		t.Errorf("expected 1 persisted event for large frame, got %d", count)
 	}
 }
+
+func TestEventWatcher_ProcessFrameNormalizesLeadingSlashes(t *testing.T) {
+	watcher := NewEventWatcher(nil, nil, nil)
+	frame := dockerEventFrame{
+		Type:   "container",
+		Action: "start",
+		Time:   1700001000,
+	}
+	frame.Actor.ID = "cid-ev-1"
+	frame.Actor.Attributes = map[string]string{
+		"name":  " /quilltab ",
+		"image": " /quillstone/quilltab:684d2b2e ",
+	}
+
+	ev, ok := watcher.processFrame(frame)
+	if !ok {
+		t.Fatalf("expected processFrame to accept start event")
+	}
+	if ev.ContainerName != "quilltab" {
+		t.Errorf("expected normalized ContainerName 'quilltab', got %q", ev.ContainerName)
+	}
+	if ev.Image != "quillstone/quilltab:684d2b2e" {
+		t.Errorf("expected normalized Image 'quillstone/quilltab:684d2b2e', got %q", ev.Image)
+	}
+}
