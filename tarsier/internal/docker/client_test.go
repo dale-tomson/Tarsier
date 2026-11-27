@@ -651,3 +651,116 @@ func TestDiscovery_SyncContainersPrunesExpiredExited(t *testing.T) {
 		}
 	}
 }
+
+func TestClient_And_SyncContainers_NormalizeLeadingSlashes(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/containers/json", func(w http.ResponseWriter, r *http.Request) {
+		payload := `[
+			{
+				"Id": "cid-norm-1",
+				"Names": ["/quilltab"],
+				"Image": "/quillstone/quilltab:684d2b2e",
+				"State": "running",
+				"Status": "Up 1 hour",
+				"Created": 1700000000
+			}
+		]`
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(payload))
+	})
+	mux.HandleFunc("/containers/cid-norm-1/json", func(w http.ResponseWriter, r *http.Request) {
+		payload := `{
+			"Id": "cid-norm-1",
+			"Name": "/quilltab",
+			"Image": "/quillstone/quilltab:684d2b2e",
+			"RestartCount": 0,
+			"State": {"Status": "running", "Running": true},
+			"Config": {"Tty": false},
+			"HostConfig": {"Memory": 1024}
+		}`
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(payload))
+	})
+
+	socketPath := newMockDockerServer(t, mux)
+	client := NewClient(socketPath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	list, err := client.ListContainers(ctx, true)
+	if err != nil {
+		t.Fatalf("ListContainers failed: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 container, got %d", len(list))
+	}
+	if list[0].Name != "quilltab" {
+		t.Errorf("expected normalized Name 'quilltab', got %q", list[0].Name)
+	}
+	if list[0].Image != "quillstone/quilltab:684d2b2e" {
+		t.Errorf("expected normalized Image 'quillstone/quilltab:684d2b2e', got %q", list[0].Image)
+	}
+
+	inspect, err := client.InspectContainer(ctx, "cid-norm-1")
+	if err != nil {
+		t.Fatalf("InspectContainer failed: %v", err)
+	}
+	if inspect.Name != "quilltab" {
+		t.Errorf("expected normalized inspect Name 'quilltab', got %q", inspect.Name)
+	}
+	if inspect.Image != "quillstone/quilltab:684d2b2e" {
+		t.Errorf("expected normalized inspect Image 'quillstone/quilltab:684d2b2e', got %q", inspect.Image)
+	}
+
+	dbDir := t.TempDir()
+	store, err := db.Open(ctx, dbDir)
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer store.Close()
+
+	// Seed a legacy running record with leading slash in name and image
+	if err := store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(txCtx, `
+			INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+			VALUES ('cid-legacy', '/quilltab', '/quillstone/quilltab:old', 1700000000, 1700000100, 'running', 0);
+		`)
+		return err
+	}); err != nil {
+		t.Fatalf("seed legacy container failed: %v", err)
+	}
+
+	syncInput := []ContainerInfo{
+		{
+			ID:    "cid-new",
+			Name:  " /quilltab ",
+			Image: " /quillstone/quilltab:new ",
+			State: "running",
+		},
+	}
+	if err := SyncContainers(ctx, store.Config, syncInput, 500); err != nil {
+		t.Fatalf("SyncContainers failed: %v", err)
+	}
+
+	var legacyStatus string
+	if err := store.Config.RO.QueryRowContext(ctx, `SELECT last_status FROM container WHERE id = 'cid-legacy';`).Scan(&legacyStatus); err != nil {
+		t.Fatalf("query legacy status failed: %v", err)
+	}
+	if legacyStatus != "exited" {
+		t.Errorf("expected legacy /quilltab record to be superseded to 'exited', got %q", legacyStatus)
+	}
+
+	var newName, newImage string
+	if err := store.Config.RO.QueryRowContext(ctx, `SELECT name, image FROM container WHERE id = 'cid-new';`).Scan(&newName, &newImage); err != nil {
+		t.Fatalf("query new container failed: %v", err)
+	}
+	if newName != "quilltab" {
+		t.Errorf("expected normalized name 'quilltab', got %q", newName)
+	}
+	if newImage != "quillstone/quilltab:new" {
+		t.Errorf("expected normalized image 'quillstone/quilltab:new', got %q", newImage)
+	}
+}

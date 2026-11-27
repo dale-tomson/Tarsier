@@ -144,13 +144,13 @@ func (c *Client) ListContainers(ctx context.Context, all bool) ([]ContainerInfo,
 	for _, item := range rawList {
 		name := ""
 		if len(item.Names) > 0 {
-			name = strings.TrimPrefix(item.Names[0], "/")
+			name = strings.TrimPrefix(strings.TrimSpace(item.Names[0]), "/")
 		}
 
 		result = append(result, ContainerInfo{
 			ID:      item.ID,
 			Name:    name,
-			Image:   item.Image,
+			Image:   strings.TrimPrefix(strings.TrimSpace(item.Image), "/"),
 			State:   strings.ToLower(item.State),
 			Status:  item.Status,
 			Created: item.Created,
@@ -236,7 +236,8 @@ func (c *Client) InspectContainer(ctx context.Context, id string) (ContainerInsp
 		return ContainerInspect{}, fmt.Errorf("decode inspect json: %w", err)
 	}
 
-	inspect.Name = strings.TrimPrefix(inspect.Name, "/")
+	inspect.Name = strings.TrimPrefix(strings.TrimSpace(inspect.Name), "/")
+	inspect.Image = strings.TrimPrefix(strings.TrimSpace(inspect.Image), "/")
 	return inspect, nil
 }
 

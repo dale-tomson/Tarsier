@@ -422,3 +422,180 @@ func TestContainersAPI_DetailIncludesRecreatedContainerEvents(t *testing.T) {
 		t.Errorf("unexpected recent events order/types: %+v", detail.RecentEvents)
 	}
 }
+
+func TestContainersAPI_DetailMatchesListWhenMultipleIncarnationsExist(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 15, 14, 0, 0, 0, time.UTC)
+	clock := &mockClock{now: now}
+
+	srv, store, cookie := setupMetricsTestServer(t, clock)
+	defer store.Close()
+
+	nowUnix := now.Unix()
+	err := store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(txCtx, `
+			INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+			VALUES
+				('cid-running', '/quilltab', '/quillstone/quilltab:684d2b2e', ?, ?, 'running', 0),
+				('cid-exited', 'quilltab', 'quillstone/quilltab:a42c0746', ?, ?, 'exited', 1);
+
+			INSERT INTO container_event (container_id, ts, type, detail)
+			VALUES
+				('cid-exited', ?, 'die', 'exit_code=0'),
+				('cid-running', ?, 'start', '');
+		`,
+			nowUnix-3600, nowUnix-1000,
+			nowUnix-4000, nowUnix-500,
+			nowUnix-500,
+			nowUnix-3600,
+		)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed config failed: %v", err)
+	}
+
+	// 1. Listing endpoint must return cid-running with normalized name and image
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	listReq.AddCookie(cookie)
+	listRec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(listRec, listReq)
+
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from list, got %d: %s", listRec.Code, listRec.Body.String())
+	}
+
+	var listResp ContainersListResponse
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("decode list response failed: %v", err)
+	}
+
+	if len(listResp.Containers) != 1 {
+		t.Fatalf("expected 1 deduplicated container in list, got %d: %+v", len(listResp.Containers), listResp.Containers)
+	}
+	listed := listResp.Containers[0]
+	if listed.ID != "cid-running" {
+		t.Errorf("expected listed container ID 'cid-running', got %q", listed.ID)
+	}
+	if listed.Name != "quilltab" {
+		t.Errorf("expected normalized listed name 'quilltab', got %q", listed.Name)
+	}
+	if listed.Image != "quillstone/quilltab:684d2b2e" {
+		t.Errorf("expected normalized listed image 'quillstone/quilltab:684d2b2e', got %q", listed.Image)
+	}
+
+	// 2. Detail endpoint must select the exact same active incarnation and normalized fields
+	detailPaths := []string{
+		"/api/v1/containers/quilltab",
+		"/api/v1/containers/%2Fquilltab",
+		"/api/v1/containers//quilltab",
+	}
+	for _, path := range detailPaths {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.AddCookie(cookie)
+			rec := httptest.NewRecorder()
+			srv.Router().ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET %s expected 200 OK, got %d: %s", path, rec.Code, rec.Body.String())
+			}
+
+			var detail ContainerDetailResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+				t.Fatalf("decode detail response failed: %v", err)
+			}
+
+			if detail.Container.ID != listed.ID {
+				t.Errorf("expected detail ID %q to match list ID %q", detail.Container.ID, listed.ID)
+			}
+			if detail.Container.Name != "quilltab" {
+				t.Errorf("expected normalized detail name 'quilltab', got %q", detail.Container.Name)
+			}
+			if detail.Container.Image != listed.Image {
+				t.Errorf("expected detail image %q to match list image %q", detail.Container.Image, listed.Image)
+			}
+			if detail.Container.State != "running" {
+				t.Errorf("expected detail state 'running', got %q", detail.Container.State)
+			}
+			if len(detail.RecentEvents) != 2 {
+				t.Errorf("expected 2 recent events across incarnations, got %d", len(detail.RecentEvents))
+			}
+		})
+	}
+}
+
+func TestContainersAPI_DetailExpiredExitedDoesNotShadowActive(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 15, 14, 0, 0, 0, time.UTC)
+	clock := &mockClock{now: now}
+
+	srv, store, cookie := setupMetricsTestServer(t, clock)
+	defer store.Close()
+
+	nowUnix := now.Unix()
+	err := store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(txCtx, `
+			INSERT INTO container (id, name, image, first_seen, last_seen, last_status, restart_count)
+			VALUES
+				('cid-expired', 'quilltab', 'quillstone/quilltab:old', ?, ?, 'exited', 0),
+				('cid-active', 'quilltab', '/quillstone/quilltab:new', ?, ?, 'running', 0),
+				('cid-only-expired', 'retired-svc', 'quillstone/retired:v1', ?, ?, 'exited', 0);
+		`,
+			nowUnix-48*3600, nowUnix-30*3600,
+			nowUnix-36*3600, nowUnix-35*3600,
+			nowUnix-48*3600, nowUnix-30*3600,
+		)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed config failed: %v", err)
+	}
+
+	cases := []struct {
+		name           string
+		path           string
+		expectedStatus int
+		expectedID     string
+		expectedImage  string
+	}{
+		{
+			name:           "active container not shadowed by expired exited record",
+			path:           "/api/v1/containers/quilltab",
+			expectedStatus: http.StatusOK,
+			expectedID:     "cid-active",
+			expectedImage:  "quillstone/quilltab:new",
+		},
+		{
+			name:           "only expired exited record returns 404",
+			path:           "/api/v1/containers/retired-svc",
+			expectedStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req.AddCookie(cookie)
+			rec := httptest.NewRecorder()
+			srv.Router().ServeHTTP(rec, req)
+
+			if rec.Code != tc.expectedStatus {
+				t.Fatalf("GET %s expected status %d, got %d: %s", tc.path, tc.expectedStatus, rec.Code, rec.Body.String())
+			}
+
+			if tc.expectedStatus == http.StatusOK {
+				var detail ContainerDetailResponse
+				if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+					t.Fatalf("decode detail failed: %v", err)
+				}
+				if detail.Container.ID != tc.expectedID {
+					t.Errorf("expected ID %q, got %q", tc.expectedID, detail.Container.ID)
+				}
+				if detail.Container.Image != tc.expectedImage {
+					t.Errorf("expected image %q, got %q", tc.expectedImage, detail.Container.Image)
+				}
+			}
+		})
+	}
+}

@@ -187,6 +187,7 @@ func (s *Server) setupRoutes() {
 
 	// Global Middlewares
 	r.Use(middleware.Recoverer)
+	r.Use(middleware.CleanPath)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Compress(5))
 	r.Use(maxBytesMiddleware(1 << 20)) // 1 MB request body limit
