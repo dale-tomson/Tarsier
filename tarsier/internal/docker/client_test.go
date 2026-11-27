@@ -282,8 +282,19 @@ func TestDiscovery_SyncContainersToConfigDB(t *testing.T) {
 		t.Errorf("expected non-zero timestamps for source")
 	}
 
-	// Wait 1 second and sync updated state
-	time.Sleep(1100 * time.Millisecond)
+	// Backdate initial timestamps in the database so last_seen advancement is verified deterministically without sleeping
+	err = store.Config.ExecWrite(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(txCtx, `UPDATE container SET first_seen = first_seen - 10, last_seen = last_seen - 10 WHERE id = 'c1';`); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(txCtx, `UPDATE source SET first_seen = first_seen - 10, last_seen = last_seen - 10 WHERE kind = 'container' AND name = 'app-worker';`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("backdate c1 timestamps: %v", err)
+	}
+	c1FirstSeen -= 10
+	c1LastSeen -= 10
 
 	updatedContainers := []ContainerInfo{
 		{
